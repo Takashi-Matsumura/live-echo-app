@@ -112,3 +112,31 @@ caffeinate -dims npm start
 - **投票・管理操作**: Server Actions（`app/actions.ts`, `app/admin/actions.ts`）。
 - **状態**: `lib/session/runtime.ts` が `globalThis` にシングルトンとして保持し、`data/session.json` にデバウンス永続化。将来 Vercel 等へ載せ替える場合は `lib/store/` の実装（`ports.ts` のインターフェース）を差し替えるだけでよい設計。
 - **結果開示の境界**: `lib/session/projection.ts` の `toPublicState()` の1箇所だけ。UI 側で `revealed` を見て出し分けるのではなく、シリアライズ層で非公開データを落とす。
+
+### SSR + SSE の仕組み
+
+このアプリの画面更新は「初回表示」と「その後の同期」で経路を分けている。
+
+1. **初回表示（SSR）**: `/`・`/present`・`/admin` はいずれも Server Component で、リクエスト時点の状態をサーバ側でレンダリングして返す。参加者・投影・管理のどの画面を開いても、JS 実行を待たずに「今の設問・今の集計」がそのまま HTML に載って届く。
+2. **以降の同期（SSE）**: 初回表示後、クライアントは `EventSource` で `app/api/stream/route.ts` の `GET /api/stream` に接続する。サーバはこのコネクションを閉じずに保持し続け、状態が変わるたびに `lib/store/in-process-broadcaster.ts` の購読者 `Set` へ `event: state` を書き込んで push する。接続直後には `event: snapshot` で現在の全状態を1回送るため、ポーリングなしで新規参加者も既存参加者も同じ状態に揃う。
+3. **書き込みは別経路**: 投票や管理操作（受付締切・結果公開・伏せる、等）は SSE のコネクションを使わず、通常の Server Actions（`app/actions.ts`, `app/admin/actions.ts`）＝ POST リクエストとして送る。SSE は「サーバ → クライアント」の一方向 push 専用で、書き込みには使っていない。
+
+まとめると、初回は SSR で state を埋め込み、以後は SSE で差分を push、書き込みは Server Actions という3経路の組み合わせ。`app/api/stream/route.ts` 冒頭のコメントに書いた通り、Next.js 側の gzip 圧縮・ヘッダ flush タイミングまわりの落とし穴を踏んだ上でこの構成に落ち着いている。
+
+### WebSocket との違い
+
+似た用途で候補に挙がる WebSocket と比べると、このアプリの要件には SSE の制約がそのまま利点になる。
+
+| | SSE（採用） | WebSocket |
+|---|---|---|
+| 通信方向 | サーバ → クライアントの一方向のみ | 双方向（全二重） |
+| プロトコル | 通常の HTTP（`text/event-stream`）。`curl` でも中身を覗ける | `ws://` への Upgrade が必要な別プロトコル |
+| 再接続 | ブラウザの `EventSource` が自動で再試行（`retry:` で間隔も指定可能） | 自前で再接続ロジックを実装する必要がある |
+| クライアント→サーバ送信 | 別チャネル（このアプリでは Server Actions の POST）が必要 | 同じコネクション上で送れる |
+| インフラ要件 | 素の HTTP サーバでそのまま動く（ただし gzip・バッファリングの無効化は要る） | Upgrade ハンドリングに対応したサーバ・プロキシ設定が要る |
+
+このアプリが必要とするのは「参加者の投票を集計してサーバから全員に配る」という**サーバ発の一方向 push**だけで、クライアントからの書き込みは投票・管理操作という別種のリクエストとして扱えば十分だった。そのため双方向の常時コネクションを持つ WebSocket ではなく、素の HTTP で完結し自動再接続も標準搭載の SSE を選んでいる。会場のトラベルルータ越しでも `curl http://<IP>:3000/api/state` で疎通確認できる（「開演前チェック」参照）のも、素の HTTP であることの実利。
+
+## ライセンス
+
+[MIT](./LICENSE)
