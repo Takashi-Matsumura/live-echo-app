@@ -37,22 +37,22 @@ export async function logout(): Promise<void> {
 
 export async function selectQuestion(questionId: string): Promise<void> {
   await assertAdmin();
-  service.selectQuestion(questionId);
+  await service.selectQuestion(questionId);
 }
 
 export async function goToAdjacentQuestion(dir: -1 | 1): Promise<void> {
   await assertAdmin();
-  service.goToAdjacentQuestion(dir);
+  await service.goToAdjacentQuestion(dir);
 }
 
 export async function setPhase(phase: "open" | "closed"): Promise<void> {
   await assertAdmin();
-  service.setPhase(phase);
+  await service.setPhase(phase);
 }
 
 export async function setRevealed(revealed: boolean): Promise<void> {
   await assertAdmin();
-  service.setRevealed(revealed);
+  await service.setRevealed(revealed);
 }
 
 export async function hideAnswer(
@@ -60,7 +60,7 @@ export async function hideAnswer(
   participantId: string,
 ): Promise<void> {
   await assertAdmin();
-  service.hideAnswer(questionId, participantId);
+  await service.hideAnswer(questionId, participantId);
 }
 
 export async function unhideAnswer(
@@ -68,15 +68,15 @@ export async function unhideAnswer(
   participantId: string,
 ): Promise<void> {
   await assertAdmin();
-  service.unhideAnswer(questionId, participantId);
+  await service.unhideAnswer(questionId, participantId);
 }
 
 export async function resetQuestion(questionId: string): Promise<void> {
   await assertAdmin();
-  service.resetQuestion(questionId);
+  await service.resetQuestion(questionId);
 }
 
 export async function resetAll(): Promise<void> {
   await assertAdmin();
-  service.resetAll();
+  await service.resetAll();
 }

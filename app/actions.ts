@@ -1,12 +1,16 @@
 "use server";
 
 import { getOrCreateParticipantId } from "@/lib/auth/participant";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, type RateLimitBuckets } from "@/lib/rate-limit";
 import { castVote } from "@/lib/session/service";
 import type { VoteResult } from "@/lib/types";
 
 const VOTE_LIMIT = 20;
 const VOTE_WINDOW_MS = 60_000;
+
+// Cloudflare 移行後は Durable Object のインスタンスフィールドに置き換わる
+// 暫定実装（lib/rate-limit.ts の doc comment 参照）。
+const voteBuckets: RateLimitBuckets = new Map();
 
 /**
  * questionId は各投票フォームで `.bind(null, question.id)` により固定される
@@ -21,10 +25,10 @@ export async function submitVote(
 ): Promise<VoteResult> {
   const participantId = await getOrCreateParticipantId();
 
-  if (!checkRateLimit(`vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)) {
+  if (!checkRateLimit(voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)) {
     return { ok: false, reason: "rate-limited" };
   }
 
   const answer = String(formData.get("answer") ?? "");
-  return castVote(participantId, questionId, answer);
+  return await castVote(participantId, questionId, answer);
 }

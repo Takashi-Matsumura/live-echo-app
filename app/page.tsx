@@ -8,9 +8,9 @@ export default async function Home() {
   // Server Component は Cookie を発行できないので読むだけ。初回訪問者は
   // null のまま「未回答」として描画し、実際の発行は GET /api/stream が行う。
   const participantId = await peekParticipantId();
-  const state = snapshotFor("participant");
+  const state = await snapshotFor("participant");
   const you = participantId
-    ? personalFor(participantId)
+    ? await personalFor(participantId)
     : { questionId: state.question?.id ?? null, myAnswer: null };
 
   return (

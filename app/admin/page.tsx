@@ -6,7 +6,7 @@ import { snapshotFor } from "@/lib/session/service";
 
 export default async function AdminPage() {
   await requireAdmin();
-  const state = snapshotFor("admin");
+  const state = await snapshotFor("admin");
 
   return (
     <LiveStateProvider

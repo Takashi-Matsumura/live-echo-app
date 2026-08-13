@@ -1,235 +1,265 @@
-import { runtime } from "@/lib/session/runtime";
 import { toPublicState } from "@/lib/session/projection";
-import { persistState } from "@/lib/persistence";
 import {
-  DEFAULT_TEXT_MAX_LENGTH,
-  getAdjacentQuestionId,
-  getQuestionById,
-  isValidChoiceId,
-} from "@/lib/questions";
+  applyCastVote,
+  applyGoToAdjacentQuestion,
+  applyHideAnswer,
+  applyResetAll,
+  applyResetQuestion,
+  applySelectQuestion,
+  applySetPhase,
+  applySetRevealed,
+  applyUnhideAnswer,
+} from "@/lib/session/mutations";
 import type {
   Phase,
   PersonalState,
   PublicState,
   Role,
+  ServerEvent,
   SessionState,
   VoteResult,
 } from "@/lib/types";
 
 const VOTE_BROADCAST_DEBOUNCE_MS = 100;
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const encoder = new TextEncoder();
 
-function persistInBackground(state: SessionState): void {
-  void persistState(state).catch((err: unknown) => {
-    console.error("[live-echo] data/session.json の書き込みに失敗しました", err);
-  });
-}
+type Listener = (next: SessionState) => void;
+
+type Runtime = {
+  state: SessionState;
+  listeners: Set<Listener>;
+  broadcastTimer: ReturnType<typeof setTimeout> | null;
+};
 
 /**
- * SessionState の差分適用ヘルパー。rev のインクリメントと updatedAt の更新を
- * ここに集約する。
+ * ★暫定の in-process 実装。globalThis + Symbol.for による状態の単一化。
  *
- * ★不変条件: mutate 系の関数（このファイル内）は途中で await しない。
- * Node は単一スレッドなので、この条件さえ守れば「読む→計算する→差し替える」は
- * アトミックになり、追加のロックは不要。
+ * Next.js は Server Actions・Route Handler・Server Component をそれぞれ
+ * 別バンドルにコンパイルすることがあり、このモジュールを import する側が
+ * 複数あると、ただのモジュールスコープ変数（let state）では実体が分裂して
+ * 状態が食い違う（実測で確認済み: /admin の Server Action 経由の更新が
+ * /api/state の Route Handler から見えなかった）。Symbol.for キーの
+ * globalThis を使えば、モジュールインスタンスが何個あっても実行時プロセスが
+ * 同じである限り状態は1つに収束する。
+ *
+ * Cloudflare Workers は複数 isolate に分散するため、この仕組みは単一
+ * プロセスの next dev / next start でのみ有効に機能する。Durable Object
+ * 移行後は、この節（state・購読者 Set・デバウンスタイマー）がまるごと DO
+ * クラスのインスタンスフィールドに置き換わる想定（DO は ID ごとに単一
+ * インスタンスであることが保証されるため、この種のモジュール分裂は起きない）。
+ * 状態遷移そのもの（mutations.ts）と結果開示の境界（projection.ts）は純粋
+ * 関数のまま DO に持ち込めるよう、ここでは配線だけを担う。
  */
-function commit(
-  current: SessionState,
-  patch: Partial<Omit<SessionState, "rev" | "updatedAt">>,
-): SessionState {
+const RUNTIME_KEY = Symbol.for("live-echo.runtime");
+
+function bootstrap(): Runtime {
   return {
-    ...current,
-    ...patch,
-    rev: current.rev + 1,
-    updatedAt: Date.now(),
+    state: {
+      rev: 0,
+      activeQuestionId: null,
+      phase: "idle",
+      revealed: false,
+      ballots: {},
+      hidden: {},
+      updatedAt: Date.now(),
+    },
+    listeners: new Set(),
+    broadcastTimer: null,
   };
 }
 
-// broadcast と永続化はタイミングの粒度が同じ（即時 / デバウンス）なので
-// ここでまとめて行う。管理操作は即時、投票はまとめて — というのが両方に
-// 共通する方針: 管理操作の反映を遅らせたくない一方、投票は同時多発するので
-// 都度ディスクに書くと I/O が無駄に増える。
-function broadcastNow(state: SessionState): void {
+function runtime(): Runtime {
+  const g = globalThis as unknown as { [RUNTIME_KEY]?: Runtime };
+  return (g[RUNTIME_KEY] ??= bootstrap());
+}
+
+function publish(next: SessionState): void {
+  // 配信中に unsubscribe されても壊れないよう、コピーを回す
+  for (const listener of Array.from(runtime().listeners)) {
+    listener(next);
+  }
+}
+
+// broadcast のタイミングは操作の種類で分ける: 管理操作は即時、投票はまとめて
+// （同時多発するのでデバウンスしないと無駄が多い）。
+function broadcastNow(next: SessionState): void {
   const rt = runtime();
   if (rt.broadcastTimer) {
     clearTimeout(rt.broadcastTimer);
     rt.broadcastTimer = null;
   }
-  rt.broadcaster.publish(state);
-  persistInBackground(state);
+  publish(next);
 }
 
-/** 投票由来の更新をまとめて配信・永続化する。管理操作は broadcastNow を使うこと */
 function broadcastDebounced(): void {
   const rt = runtime();
   if (rt.broadcastTimer) clearTimeout(rt.broadcastTimer);
   rt.broadcastTimer = setTimeout(() => {
     rt.broadcastTimer = null;
-    const latest = rt.store.get();
-    rt.broadcaster.publish(latest);
-    persistInBackground(latest);
+    publish(rt.state);
   }, VOTE_BROADCAST_DEBOUNCE_MS);
 }
 
-// ── 購読 / 読み取り ─────────────────────────────────────────
+// ── 読み取り ───────────────────────────────────────────────
 
-/** role ごとに projection した PublicState を配信する購読を開始する */
-export function subscribe(
-  role: Role,
-  onState: (state: PublicState) => void,
-): () => void {
-  const rt = runtime();
-  return rt.broadcaster.subscribe((raw) => onState(toPublicState(raw, role)));
+export async function snapshotFor(role: Role): Promise<PublicState> {
+  return toPublicState(runtime().state, role);
 }
 
-export function snapshotFor(role: Role): PublicState {
-  return toPublicState(runtime().store.get(), role);
-}
-
-export function personalFor(participantId: string): PersonalState {
-  const state = runtime().store.get();
+export async function personalFor(participantId: string): Promise<PersonalState> {
+  const { state } = runtime();
   const questionId = state.activeQuestionId;
   if (!questionId) return { questionId: null, myAnswer: null };
   const answer = state.ballots[questionId]?.[participantId];
   return { questionId, myAnswer: answer ?? null };
 }
 
+/**
+ * SSE 配信。将来 Durable Object に移設する前提で、フレーム生成・購読・
+ * ハートビート・切断検知をすべてここに閉じ込める。呼び出し側
+ * （app/api/stream/route.ts）は Cookie から role / participantId を解決して
+ * 渡し、返ってきた ReadableStream をそのまま Response にするだけにする。
+ *
+ * ★Next.js 16.3 の実装を読んで確認した3つの落とし穴がすべてここに集約される。
+ * 1. 同梱の gzip が text/event-stream にも掛かる → 呼び出し側で
+ *    Cache-Control: no-transform を付けさせる（Workers 移行後は無害な no-op）。
+ * 2. 最初の enqueue までヘッダが飛ばない → start() で同期的に必ず初期
+ *    スナップショットを書く。DO に移設した後もこの制約は自然に保たれる
+ *    （state はインスタンスフィールドなので同期読み取りのまま）。
+ * 3. Proxy（旧 middleware）は globalThis を共有できない → 認証は呼び出し側
+ *    （Route Handler）で完結させ、この関数には解決済みの role/participantId
+ *    だけを渡す。
+ */
+export async function openEventStream(
+  role: Role,
+  participantId: string,
+): Promise<ReadableStream<Uint8Array>> {
+  const initialSnapshot = await snapshotFor(role);
+  const initialYou = await personalFor(participantId);
+
+  let cleanup = () => {};
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      let closed = false;
+
+      const write = (chunk: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(chunk));
+        } catch {
+          // enqueue はストリームが閉じた後に呼ぶと throw する。
+          // これをサーバ側の死活検知として使い、購読を解除する。
+          closed = true;
+          cleanup();
+        }
+      };
+
+      const sendEvent = (name: ServerEvent["kind"], data: unknown) => {
+        write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+      };
+
+      // 再接続間隔の指定を兼ねて、同期的に最初の1バイトを書く（落とし穴2の対策）。
+      write("retry: 2000\n\n");
+
+      // 初期スナップショット。再接続時はこれだけで完全に状態が復元される。
+      sendEvent("snapshot", { state: initialSnapshot, you: initialYou });
+
+      const listener: Listener = (raw) => {
+        sendEvent("state", { state: toPublicState(raw, role) });
+      };
+      const rt = runtime();
+      rt.listeners.add(listener);
+
+      // ハートビート: (a) 書き込み失敗による切断検知、(b) AP/NAT のアイドル
+      // タイムアウト回避、(c) iOS Safari が接続を停止扱いにするのを防ぐ。
+      const heartbeat = setInterval(() => {
+        write(`: hb ${Date.now()}\n\n`);
+      }, HEARTBEAT_INTERVAL_MS);
+      heartbeat.unref?.();
+
+      cleanup = () => {
+        if (closed) return;
+        closed = true;
+        rt.listeners.delete(listener);
+        clearInterval(heartbeat);
+      };
+    },
+    cancel() {
+      cleanup();
+    },
+  });
+}
+
 // ── 参加者操作 ─────────────────────────────────────────────
 
-export function castVote(
+export async function castVote(
   participantId: string,
   questionId: string,
   rawAnswer: string,
-): VoteResult {
-  const question = getQuestionById(questionId);
-  if (!question) return { ok: false, reason: "invalid" };
-
+): Promise<VoteResult> {
   const rt = runtime();
-  const current = rt.store.get();
-
-  if (current.activeQuestionId !== questionId) {
-    // 回答している間に講師が別の設問に切り替えた
-    return { ok: false, reason: "stale" };
+  const { next, result } = applyCastVote(rt.state, participantId, questionId, rawAnswer);
+  if (next) {
+    rt.state = next;
+    broadcastDebounced();
   }
-  if (current.phase !== "open") {
-    return { ok: false, reason: "closed" };
-  }
-
-  let answer: string;
-  if (question.kind === "choice") {
-    if (!isValidChoiceId(question, rawAnswer)) {
-      return { ok: false, reason: "invalid" };
-    }
-    answer = rawAnswer;
-  } else {
-    const trimmed = rawAnswer.trim();
-    if (trimmed.length === 0) return { ok: false, reason: "invalid" };
-    const maxLength = question.maxLength ?? DEFAULT_TEXT_MAX_LENGTH;
-    if (trimmed.length > maxLength) return { ok: false, reason: "too-long" };
-    answer = trimmed;
-  }
-
-  const questionBallots = current.ballots[questionId] ?? {};
-  const next = commit(current, {
-    ballots: {
-      ...current.ballots,
-      [questionId]: { ...questionBallots, [participantId]: answer },
-    },
-  });
-  rt.store.set(next);
-  broadcastDebounced();
-  return { ok: true };
+  return result;
 }
 
 // ── 管理操作（すべて即時 broadcast） ─────────────────────────
 
-export function selectQuestion(questionId: string): void {
-  const question = getQuestionById(questionId);
-  if (!question) throw new Error(`unknown question id: ${questionId}`);
+export async function selectQuestion(questionId: string): Promise<void> {
   const rt = runtime();
-  const next = commit(rt.store.get(), {
-    activeQuestionId: questionId,
-    phase: "open",
-    revealed: false,
-  });
-  rt.store.set(next);
-  broadcastNow(next);
+  rt.state = applySelectQuestion(rt.state, questionId);
+  broadcastNow(rt.state);
 }
 
-export function goToAdjacentQuestion(dir: -1 | 1): void {
-  const current = runtime().store.get();
-  const targetId = getAdjacentQuestionId(current.activeQuestionId, dir);
-  if (targetId === null) return;
-  selectQuestion(targetId);
+export async function goToAdjacentQuestion(dir: -1 | 1): Promise<void> {
+  const rt = runtime();
+  const next = applyGoToAdjacentQuestion(rt.state, dir);
+  if (!next) return;
+  rt.state = next;
+  broadcastNow(rt.state);
 }
 
-export function setPhase(phase: Phase): void {
+export async function setPhase(phase: Phase): Promise<void> {
   const rt = runtime();
-  const next = commit(rt.store.get(), { phase });
-  rt.store.set(next);
-  broadcastNow(next);
+  rt.state = applySetPhase(rt.state, phase);
+  broadcastNow(rt.state);
 }
 
-export function setRevealed(revealed: boolean): void {
+export async function setRevealed(revealed: boolean): Promise<void> {
   const rt = runtime();
-  const next = commit(rt.store.get(), { revealed });
-  rt.store.set(next);
-  broadcastNow(next);
+  rt.state = applySetRevealed(rt.state, revealed);
+  broadcastNow(rt.state);
 }
 
-export function hideAnswer(questionId: string, participantId: string): void {
+export async function hideAnswer(questionId: string, participantId: string): Promise<void> {
   const rt = runtime();
-  const current = rt.store.get();
-  const existing = current.hidden[questionId] ?? [];
-  if (existing.includes(participantId)) return;
-  const next = commit(current, {
-    hidden: { ...current.hidden, [questionId]: [...existing, participantId] },
-  });
-  rt.store.set(next);
-  broadcastNow(next);
+  const next = applyHideAnswer(rt.state, questionId, participantId);
+  if (!next) return;
+  rt.state = next;
+  broadcastNow(rt.state);
 }
 
-export function unhideAnswer(questionId: string, participantId: string): void {
+export async function unhideAnswer(questionId: string, participantId: string): Promise<void> {
   const rt = runtime();
-  const current = rt.store.get();
-  const existing = current.hidden[questionId] ?? [];
-  if (!existing.includes(participantId)) return;
-  const next = commit(current, {
-    hidden: {
-      ...current.hidden,
-      [questionId]: existing.filter((id) => id !== participantId),
-    },
-  });
-  rt.store.set(next);
-  broadcastNow(next);
+  const next = applyUnhideAnswer(rt.state, questionId, participantId);
+  if (!next) return;
+  rt.state = next;
+  broadcastNow(rt.state);
 }
 
-export function resetQuestion(questionId: string): void {
+export async function resetQuestion(questionId: string): Promise<void> {
   const rt = runtime();
-  const current = rt.store.get();
-  const nextBallots = { ...current.ballots };
-  delete nextBallots[questionId];
-  const nextHidden = { ...current.hidden };
-  delete nextHidden[questionId];
-  const isActive = current.activeQuestionId === questionId;
-  const next = commit(current, {
-    ballots: nextBallots,
-    hidden: nextHidden,
-    revealed: isActive ? false : current.revealed,
-    phase: isActive ? "idle" : current.phase,
-  });
-  rt.store.set(next);
-  broadcastNow(next);
+  rt.state = applyResetQuestion(rt.state, questionId);
+  broadcastNow(rt.state);
 }
 
-export function resetAll(): void {
+export async function resetAll(): Promise<void> {
   const rt = runtime();
-  const next = commit(rt.store.get(), {
-    activeQuestionId: null,
-    phase: "idle",
-    revealed: false,
-    ballots: {},
-    hidden: {},
-  });
-  rt.store.set(next);
-  broadcastNow(next);
+  rt.state = applyResetAll(rt.state);
+  broadcastNow(rt.state);
 }

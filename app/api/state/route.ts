@@ -14,8 +14,8 @@ export async function GET(request: Request) {
 
   const payload: ServerEvent = {
     kind: "snapshot",
-    state: snapshotFor(role),
-    you: personalFor(participantId),
+    state: await snapshotFor(role),
+    you: await personalFor(participantId),
   };
 
   return Response.json(payload);

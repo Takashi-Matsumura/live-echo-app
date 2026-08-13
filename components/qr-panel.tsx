@@ -1,16 +1,28 @@
+import { headers } from "next/headers";
 import { renderSVG } from "uqr";
-import { getPreferredBaseUrl, getServerPort } from "@/lib/network";
+import { env } from "@/lib/env";
 
 /**
- * 会場の LAN IP から QR コードを生成する（Server Component）。
+ * リクエストの Host ヘッダーから QR の URL を組み立てる。
+ * PUBLIC_BASE_URL が設定されていればそれを最優先する（独自ドメイン等）。
+ */
+async function resolveBaseUrl(): Promise<string> {
+  if (env.PUBLIC_BASE_URL) return env.PUBLIC_BASE_URL;
+  const h = await headers();
+  const host = h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  return `${proto}://${host}`;
+}
+
+/**
+ * QR コードを生成する（Server Component）。
  * QR は常に「白背景・黒モジュール」の標準配色にする — スキャナの読み取り
  * 互換性を優先し、/present の暗い背景の上には白いカードとして浮かせる。
  * ダーク背景に明るいモジュールの反転 QR は、機種によっては読み取れない
  * ことがあるため意図的に避けている。
  */
-export function QrPanel() {
-  const port = getServerPort();
-  const url = getPreferredBaseUrl(port);
+export async function QrPanel() {
+  const url = await resolveBaseUrl();
   const svg = renderSVG(url, {
     ecc: "M",
     border: 2,
