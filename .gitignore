@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# live-echo: 実行時の永続化データ（当日のアンケート状態）
+/data/session.json
