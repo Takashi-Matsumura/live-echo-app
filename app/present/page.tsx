@@ -1,9 +1,13 @@
-import { BrandMark } from "@/components/brand-mark";
+import type { Metadata } from "next";
 import { LiveStateProvider } from "@/components/live-state-provider";
 import { PresentScreen } from "@/components/present-screen";
 import { QrPanel } from "@/components/qr-panel";
 import { requireAdmin } from "@/lib/auth/admin";
 import { snapshotFor } from "@/lib/session/service";
+
+export const metadata: Metadata = {
+  title: "投影画面",
+};
 
 export default async function PresentPage() {
   // プロジェクタに映す画面。参加者と同じ結果開示ゲートを通すが、締切前の
@@ -17,7 +21,7 @@ export default async function PresentPage() {
       initialYou={{ questionId: null, myAnswer: null }}
       view="admin"
     >
-      <PresentScreen qrPanel={<QrPanel />} brandMark={<BrandMark size="sm" />} />
+      <PresentScreen qrPanel={<QrPanel />} />
     </LiveStateProvider>
   );
 }

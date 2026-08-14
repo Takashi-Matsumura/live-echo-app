@@ -2,7 +2,12 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ライブアンケート",
+  title: {
+    // 各ページの metadata.title は "%s" に差し込まれる（例:「管理画面 | ライブアンケート」）。
+    // ブラウザのタブ名で参加者・管理・投影の3画面を区別できるようにする。
+    template: "%s | ライブアンケート",
+    default: "ライブアンケート",
+  },
   description: "会場参加型のリアルタイムアンケート",
 };
 
