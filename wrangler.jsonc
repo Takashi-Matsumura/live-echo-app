@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"main": ".open-next/worker.js",
+	"main": "worker.ts",
 	"name": "live-echo-app",
 	"compatibility_date": "2026-08-11",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
@@ -14,6 +14,21 @@
 			// see https://opennext.js.org/cloudflare/caching
 			"binding": "WORKER_SELF_REFERENCE",
 			"service": "live-echo-app"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "SESSION_DO",
+				"class_name": "SessionDO"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			// SQLite バックエンド: Free プランでも使える（KV バックエンドは Paid 限定）
+			"new_sqlite_classes": ["SessionDO"]
 		}
 	]
 }

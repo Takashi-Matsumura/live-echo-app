@@ -1,16 +1,8 @@
 "use server";
 
 import { getOrCreateParticipantId } from "@/lib/auth/participant";
-import { checkRateLimit, type RateLimitBuckets } from "@/lib/rate-limit";
 import { castVote } from "@/lib/session/service";
 import type { VoteResult } from "@/lib/types";
-
-const VOTE_LIMIT = 20;
-const VOTE_WINDOW_MS = 60_000;
-
-// Cloudflare 移行後は Durable Object のインスタンスフィールドに置き換わる
-// 暫定実装（lib/rate-limit.ts の doc comment 参照）。
-const voteBuckets: RateLimitBuckets = new Map();
 
 /**
  * questionId は各投票フォームで `.bind(null, question.id)` により固定される
@@ -18,17 +10,17 @@ const voteBuckets: RateLimitBuckets = new Map();
  * JS 有効時はクライアント側で preventDefault してこの関数を直接 await し、
  * 結果に応じて楽観更新する）。answer は FormData の "answer" フィールド
  * （選択式は hidden input、自由記述は textarea）から読む。
+ *
+ * 投票のレート制限は Durable Object（castVote 内）で行う。同時多発する
+ * リクエストがすべて DO の単一インスタンスを経由するため、そこで一元的に
+ * 判定するのが自然かつ正確（Next.js の Worker 側は複数 isolate に
+ * 分散しうるため、ここで独自にレート制限を持つと isolate ごとに別集計になる）。
  */
 export async function submitVote(
   questionId: string,
   formData: FormData,
 ): Promise<VoteResult> {
   const participantId = await getOrCreateParticipantId();
-
-  if (!checkRateLimit(voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)) {
-    return { ok: false, reason: "rate-limited" };
-  }
-
   const answer = String(formData.get("answer") ?? "");
   return await castVote(participantId, questionId, answer);
 }

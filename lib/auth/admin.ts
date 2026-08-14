@@ -2,17 +2,11 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "@/lib/env";
-import { checkRateLimit, type RateLimitBuckets } from "@/lib/rate-limit";
+import { getSessionStub } from "@/lib/session/stub";
 import type { Role } from "@/lib/types";
 
 const COOKIE_NAME = "le_admin";
 const TTL_MS = 12 * 60 * 60 * 1000; // 12時間
-const LOGIN_LIMIT = 10;
-const LOGIN_WINDOW_MS = 60_000;
-
-// Cloudflare 移行後は Durable Object のインスタンスフィールドに置き換わる
-// 暫定実装（lib/rate-limit.ts の doc comment 参照）。
-const loginBuckets: RateLimitBuckets = new Map();
 
 function sign(payload: string): string {
   return createHmac("sha256", env.SESSION_SECRET).update(payload).digest("base64url");
@@ -108,7 +102,8 @@ async function loginRateLimitKey(): Promise<string> {
 
 export async function verifyPassword(candidate: string): Promise<boolean> {
   const key = await loginRateLimitKey();
-  if (!checkRateLimit(loginBuckets, `login:${key}`, LOGIN_LIMIT, LOGIN_WINDOW_MS)) {
+  const stub = await getSessionStub();
+  if (!(await stub.checkLoginRate(key))) {
     return false;
   }
   return safeEqualStrings(candidate, env.ADMIN_PASSWORD);
