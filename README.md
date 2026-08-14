@@ -19,6 +19,7 @@ npm run dev
 
 - `ADMIN_PASSWORD` — 管理画面のログインパスワード。**本番運用前に必ず変更する**
 - `SESSION_SECRET` — 管理者セッション Cookie の署名鍵
+- `TOTP_SECRET` — 管理画面ログインの二要素認証（TOTP）用シークレット。`node scripts/generate-totp-secret.mjs` で生成する。ローカルと本番で**別の値**を使うこと（同じ値だと Authenticator アプリのエントリが競合する）
 - `PUBLIC_BASE_URL`（任意）— QR / 投影画面の URL を明示的に上書きしたいときに設定。未設定ならリクエストの Host ヘッダーから自動的に組み立てる。**`.env.local` に設定するとビルド時にその値が Cloudflare Worker バンドルへ静的に焼き込まれる**ため、実際の Cloudflare デプロイでは設定しないこと（Host ヘッダーからの自動検出が効かなくなる）。将来カスタムドメイン等で本番から上書きしたい場合は `.env.local` ではなく `wrangler.jsonc` の `vars` か Cloudflare ダッシュボードの環境変数で設定する
 
 検証（完了を宣言する前に必ず実行する）:
@@ -38,7 +39,10 @@ npm run lint
 npx wrangler login
 npx wrangler secret put ADMIN_PASSWORD
 npx wrangler secret put SESSION_SECRET
+npx wrangler secret put TOTP_SECRET  # node scripts/generate-totp-secret.mjs の出力を貼る
 ```
+
+`TOTP_SECRET` を設定（または `wrangler secret put` でローテーション）したら、**デプロイ直後に真っ先に自分でログインして二要素認証の登録を完了させる**こと。未登録の間はパスワードさえ合えば誰でも自分の端末を登録できてしまう窓が開いている（下記「認証」参照）。
 
 ローカルで実際の Workers ランタイム（Durable Object 込み）を確認する:
 
@@ -80,6 +84,12 @@ Workers には Free と Paid（$5/月〜）があるが、**このアプリで�
 
 **トラブル時**: 画面ロック復帰後にグラフが止まって見える場合は、数秒で自動的に再接続・最新状態に復帰する（`visibilitychange` で即時フェッチ + SSE 再接続）。サーバプロセスという概念が無い（Durable Object が状態を持ち続ける）ため、「サーバを落としてしまった」という事故は起きない。
 
+**二要素認証（TOTP）でログインできないとき**:
+- 認証コードが毎回ずれる → スマホの時刻自動設定を確認する（Authenticator アプリ側に「コードの時刻補正」機能がある場合はそれも試す）。サーバ側の時刻は関係ない
+- 端末を紛失した → `npx wrangler secret put TOTP_SECRET` で新しいシークレットに差し替えて再デプロイすると、次回ログイン時に自動でQRコードが再表示される（登録し直しになる）
+- シークレットをローテーションした → Authenticator アプリ側の**古いエントリを削除してから**新しいQRを読み取る（削除しないと同名エントリが2つ並び、どちらのコードを打っているか分からなくなる）
+- 連続で間違えてロックされた → 15分待つ（`TOTP_STORAGE_KEY` に永続化されているため、`npm run preview` の再起動やデプロイのやり直しではロックは解除されない）
+
 ## アーキテクチャ概要
 
 - **状態**: `lib/session/session-do.ts` の Durable Object（`SessionDO`）が `SessionState` をインスタンスフィールドとして保持し、DO 自身のストレージ（SQLite バックエンド）にデバウンス永続化する。
@@ -88,8 +98,11 @@ Workers には Free と Paid（$5/月〜）があるが、**このアプリで�
 - **配信**: 同じ Durable Object の中で SSE 購読者を管理し、状態が変わるたびに `event: state` を push する。
 - **投票・管理操作**: Server Actions（`app/actions.ts`, `app/admin/actions.ts`）から `lib/session/service.ts`（DO への薄い RPC クライアント）経由で `SessionDO` のメソッドを呼ぶ。
 - **結果開示の境界**: `lib/session/projection.ts` の `toPublicState()` の1箇所だけ。UI 側で `revealed` を見て出し分けるのではなく、シリアライズ層で非公開データを落とす。
-- **レート制限**: 投票（`castVote`）・ログイン試行（`checkLoginRate`）ともに `SessionDO` のインスタンスフィールド（`lib/rate-limit.ts` の `checkRateLimit()` を使う固定窓カウンタ）で一元管理する。Workers は複数 isolate に分散するため、Next.js 側のモジュールスコープにカウンタを置くと isolate ごとに別集計になってしまう。すべてのリクエストが最終的に同じ DO を経由することを利用し、DO 側に寄せてある。
-- **認証**: 管理者セッションは HMAC 署名付き Cookie（`lib/auth/admin.ts`）。Cloudflare は HTTPS のみのため Cookie は `secure: true`。ログイン試行のレート制限キーには、クライアントが偽装できない `cf-connecting-ip`（Cloudflare が付与）を最優先で使う。
+- **レート制限**: 投票（`castVote`）・パスワードログイン試行（`checkLoginRate`）は `SessionDO` のインスタンスフィールド（`lib/rate-limit.ts` の `checkRateLimit()` を使う固定窓カウンタ）で一元管理する。Workers は複数 isolate に分散するため、Next.js 側のモジュールスコープにカウンタを置くと isolate ごとに別集計になってしまう。すべてのリクエストが最終的に同じ DO を経由することを利用し、DO 側に寄せてある。**TOTP コードの失敗カウンタだけは例外的に DO の `ctx.storage`（SQLite）に永続化**している（`TOTP_STORAGE_KEY`）。6桁コード（100万通り）は in-memory カウンタでは守り切れない — DO は購読者ゼロで短時間退避するため、攻撃者が「数回試す→退避を待つ→また数回」を繰り返すとインスタンスフィールドのカウンタはリセットされてしまう。
+- **認証**: 管理者セッションは HMAC 署名付き Cookie（`lib/auth/admin.ts`）。Cloudflare は HTTPS のみのため Cookie は `secure: true`。ログイン試行のレート制限キーには、クライアントが偽装できない `cf-connecting-ip`（Cloudflare が付与）を最優先で使う。パスワード検証に加えて TOTP（`lib/auth/totp.ts`、RFC 6238）による二要素認証を必須にしている（`lib/auth/admin.ts` の `attemptAdminLogin()`）:
+  - シークレット自体は `TOTP_SECRET` 環境変数のみに存在し、DO には **sha256 で切り詰めた指紋**（`totpSecretFingerprint()`）だけを保存する。パスワード正解かつ未登録（または指紋不一致）ならログイン画面にQRコードを自動表示し、Authenticator アプリへの登録を促す。登録済みならQRは出さずコード入力のみを求める
+  - **端末紛失時の復旧経路**は `ADMIN_PASSWORD`/`SESSION_SECRET` と同じ操作性: `wrangler secret put TOTP_SECRET` で値を差し替えて再デプロイするだけでよい。次回ログイン時に指紋が一致しなくなり、自動的にQRが再表示される
+  - **意図的な割り切り**: 未登録の間（初回デプロイ直後・シークレットローテーション直後）は、パスワードを知っている者なら誰でも自分の端末を登録できてしまう。デプロイ後すぐに登録を完了させ、この窓を閉じる運用を前提にしている
 
 ### SSR + SSE の仕組み
 
