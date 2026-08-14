@@ -1,4 +1,7 @@
+import Link from "next/link";
+import { logout } from "@/app/admin/actions";
 import { AdminConsole } from "@/components/admin-console";
+import { AdminTabs } from "@/components/admin-tabs";
 import { BrandMark } from "@/components/brand-mark";
 import { BrandSettings } from "@/components/brand-settings";
 import { LiveStateProvider } from "@/components/live-state-provider";
@@ -17,19 +20,45 @@ export default async function AdminPage() {
       <BrandMark size="sm" />
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="flex min-w-0 flex-col gap-8">
-          <LiveStateProvider
-            initialState={state}
-            initialYou={{ questionId: null, myAnswer: null }}
-            view="admin"
-          >
-            <AdminConsole questions={deck.questions} />
-          </LiveStateProvider>
+        <div className="flex min-w-0 max-w-3xl flex-col gap-6">
+          {/* タブ切り替えに関係なく常時表示する操作。QRコード表示・ログアウト
+              はどちらのタブを見ていても必要なので、タブの外に置く。 */}
+          <header className="flex items-center justify-between gap-3">
+            <h1 className="text-xl font-semibold">管理画面</h1>
+            <div className="flex items-center gap-4">
+              <Link
+                href="/present"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-black/10 px-4 py-1.5 text-sm dark:border-white/15"
+              >
+                QRコードを表示 ↗
+              </Link>
+              <form action={logout}>
+                <button
+                  type="submit"
+                  className="text-sm text-black/50 underline dark:text-white/50"
+                >
+                  ログアウト
+                </button>
+              </form>
+            </div>
+          </header>
 
-          {/* ブランド設定はライブ状態と無関係なので LiveStateProvider の外に
-              置く（下の PhonePreview と同じ判断）。ただし表示位置は
-              AdminConsole の直下・同じ幅で構わないのでここに並べる。 */}
-          <BrandSettings hasLogo={logoMeta !== null} preview={<BrandMark size="md" />} />
+          <AdminTabs
+            questionsPanel={
+              <LiveStateProvider
+                initialState={state}
+                initialYou={{ questionId: null, myAnswer: null }}
+                view="admin"
+              >
+                <AdminConsole questions={deck.questions} />
+              </LiveStateProvider>
+            }
+            brandPanel={
+              <BrandSettings hasLogo={logoMeta !== null} preview={<BrandMark size="md" />} />
+            }
+          />
         </div>
 
         {/* 参加者プレビュー。LiveStateProvider の外に置くことで、admin 用に
