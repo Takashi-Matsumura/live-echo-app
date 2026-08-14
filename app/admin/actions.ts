@@ -2,32 +2,34 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import {
-  assertAdmin,
-  clearAdminSession,
-  issueAdminSession,
-  verifyPassword,
-} from "@/lib/auth/admin";
+import { assertAdmin, attemptAdminLogin, clearAdminSession } from "@/lib/auth/admin";
 import { validateLogoFile } from "@/lib/brand/validate";
+import { renderQrSvg } from "@/lib/qr";
 import { DEFAULT_TEXT_MAX_LENGTH, validateQuestionDraft } from "@/lib/questions";
 import * as service from "@/lib/session/service";
 import type { ChoiceDraft, QuestionDraft } from "@/lib/types";
 
-export type LoginState = { error?: string };
+export type LoginState = { error?: string; qrSvg?: string; manualSecret?: string };
 
 export async function login(
   _prevState: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
   const password = String(formData.get("password") ?? "");
-  const ok = await verifyPassword(password);
-  if (!ok) {
+  const code = String(formData.get("code") ?? "");
+  const result = await attemptAdminLogin(password, code);
+
+  if (result.kind === "ok") {
+    redirect("/admin");
+  }
+  if (result.kind === "totp-setup") {
     return {
-      error: "パスワードが違うか、試行回数の上限に達しました。しばらくしてから再度お試しください。",
+      error: result.message ?? undefined,
+      qrSvg: renderQrSvg(result.otpauthUri, null),
+      manualSecret: result.manualSecret,
     };
   }
-  await issueAdminSession();
-  redirect("/admin");
+  return { error: result.message };
 }
 
 export async function logout(): Promise<void> {
