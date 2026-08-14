@@ -8,8 +8,7 @@ import { BrandSettings } from "@/components/brand-settings";
 import { LiveStateProvider } from "@/components/live-state-provider";
 import { PhonePreview } from "@/components/phone-preview";
 import { requireAdmin } from "@/lib/auth/admin";
-import { deck } from "@/lib/questions";
-import { getBrandLogoMeta, snapshotFor } from "@/lib/session/service";
+import { getBrandLogoMeta, getQuestions, snapshotFor } from "@/lib/session/service";
 
 export const metadata: Metadata = {
   title: "管理画面",
@@ -17,7 +16,11 @@ export const metadata: Metadata = {
 
 export default async function AdminPage() {
   await requireAdmin();
-  const [state, logoMeta] = await Promise.all([snapshotFor("admin"), getBrandLogoMeta()]);
+  const [state, logoMeta, questions] = await Promise.all([
+    snapshotFor("admin"),
+    getBrandLogoMeta(),
+    getQuestions(),
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-6 py-10">
@@ -57,7 +60,7 @@ export default async function AdminPage() {
                 initialYou={{ questionId: null, myAnswer: null }}
                 view="admin"
               >
-                <AdminConsole questions={deck.questions} />
+                <AdminConsole questions={questions} />
               </LiveStateProvider>
             }
             brandPanel={

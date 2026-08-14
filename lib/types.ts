@@ -1,6 +1,8 @@
 /**
  * アプリ全体の型定義（単一の真実）。
- * - Question 系: content/questions.ts が書く「設問定義」
+ * - Question 系: 管理画面から登録・編集する「設問定義」。実体は Durable
+ *   Object のストレージ（lib/session/session-do.ts）。初回起動時だけ
+ *   content/questions.ts の内容をシードとして使う（lib/questions/seed.ts）。
  * - SessionState: サーバだけが持つ生の状態（永続化対象）
  * - PublicState / PersonalState: クライアントに配る形（結果開示ゲートは lib/session/projection.ts）
  */
@@ -36,6 +38,51 @@ export type Deck = {
   readonly title: string;
   readonly questions: readonly Question[];
 };
+
+// ── 設問の作成・編集フォーム入力 ────────────────────────────
+// 管理画面から送信される「まだ検証していない」下書きの形。
+// lib/questions.ts の validateQuestionDraft() がこれを検証し、
+// 確定した Question に変換する（実際の永続化は lib/session/ 側）。
+
+export type ChoiceDraft = {
+  /** 既存の選択肢を編集した行なら元の id、新規に追加した行なら null
+   *  （サーバー側で crypto.randomUUID() を新規発行する）。 */
+  readonly id: string | null;
+  readonly label: string;
+};
+
+export type QuestionDraft = {
+  readonly kind: "choice" | "text";
+  readonly prompt: string;
+  /** 空文字列は「note なし」を表す */
+  readonly note: string;
+  /** kind === "choice" のときだけ使う */
+  readonly choices: readonly ChoiceDraft[];
+  /** kind === "text" のときだけ使う。空文字列は「placeholder なし」 */
+  readonly placeholder: string;
+  /** kind === "text" のときだけ使う */
+  readonly maxLength: number;
+};
+
+/** validateQuestionDraft() の成功時の戻り値。Question.id はまだ付いて
+ *  いない（新規作成なら新しい id、更新なら既存の id を呼び出し側が
+ *  付与する）。choices の id はこの時点で確定済み（新規選択肢にも
+ *  発行済み）なので、更新時に「どの選択肢が削除されたか」を
+ *  id の集合差分で判定できる。 */
+export type ValidatedQuestionData =
+  | {
+      readonly kind: "choice";
+      readonly prompt: string;
+      readonly note?: string;
+      readonly choices: readonly Choice[];
+    }
+  | {
+      readonly kind: "text";
+      readonly prompt: string;
+      readonly note?: string;
+      readonly placeholder?: string;
+      readonly maxLength: number;
+    };
 
 // ── セッション状態（サーバのみ。永続化対象） ──────────────────
 

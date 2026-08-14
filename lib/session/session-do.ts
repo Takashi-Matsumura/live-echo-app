@@ -1,16 +1,20 @@
 import { DurableObject } from "cloudflare:workers";
-import { sanitizePersistedState } from "@/lib/session/sanitize";
+import { sanitizePersistedQuestions, sanitizePersistedState } from "@/lib/session/sanitize";
 import { toPublicState } from "@/lib/session/projection";
 import {
   applyCastVote,
+  applyChoicesRemoved,
   applyHideAnswer,
+  applyQuestionRemoved,
   applyResetAll,
   applyResetQuestion,
   applySelectQuestion,
   applySetPhase,
   applySetRevealed,
   applyUnhideAnswer,
+  bumpRev,
 } from "@/lib/session/mutations";
+import { seedQuestions } from "@/lib/questions/seed";
 import { checkRateLimit, type RateLimitBuckets } from "@/lib/rate-limit";
 import type {
   BrandLogo,
@@ -19,9 +23,11 @@ import type {
   Phase,
   PersonalState,
   PublicState,
+  Question,
   Role,
   ServerEvent,
   SessionState,
+  ValidatedQuestionData,
   VoteResult,
 } from "@/lib/types";
 
@@ -36,6 +42,11 @@ const STATE_STORAGE_KEY = "state";
 // state は投票のたびに publish() で全接続へ SSE 配信されるため、画像バイト
 // 列をそこに混ぜてはいけない。読み書きの頻度も低いのでホットパス外に置く。
 const BRAND_LOGO_STORAGE_KEY = "brandLogo";
+// 設問も SessionState とは別キー。ただし brand logo と違い toPublicState()
+// がホットパス（投票のたびに publish() が同期的に呼ぶ）で必要とするため、
+// storage を都度読むのではなく this.questions に常駐させる
+// （コンストラクタの blockConcurrencyWhile でロード）。
+const QUESTIONS_STORAGE_KEY = "questions";
 
 const VALID_LOGO_MIMES: readonly BrandLogoMime[] = ["image/png", "image/jpeg", "image/webp"];
 
@@ -84,6 +95,7 @@ type Subscriber = {
  */
 export class SessionDO extends DurableObject<CloudflareEnv> {
   private state: SessionState = initialState();
+  private questions: readonly Question[] = [];
   private subscribers = new Set<Subscriber>();
   private broadcastTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -95,8 +107,23 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     // コンストラクタ完了まで他の呼び出しはキューイングされるため、
     // 各メソッド側で復元完了を個別に待つ必要はない。
     ctx.blockConcurrencyWhile(async () => {
-      const persisted = await ctx.storage.get<unknown>(STATE_STORAGE_KEY);
-      const sanitized = sanitizePersistedState(persisted ?? null);
+      const [persistedState, persistedQuestions] = await Promise.all([
+        ctx.storage.get<unknown>(STATE_STORAGE_KEY),
+        ctx.storage.get<unknown>(QUESTIONS_STORAGE_KEY),
+      ]);
+
+      const sanitizedQuestions = sanitizePersistedQuestions(persistedQuestions ?? null);
+      if (sanitizedQuestions) {
+        this.questions = sanitizedQuestions;
+      } else {
+        // まだ一度も管理画面で設問を保存していない（キー自体が無い）。
+        // content/questions.ts のシードを初期値にし、以後はこれを正として
+        // 扱えるようすぐに永続化する（次回起動からはシードを参照しない）。
+        this.questions = seedQuestions();
+        void ctx.storage.put(QUESTIONS_STORAGE_KEY, this.questions);
+      }
+
+      const sanitized = sanitizePersistedState(persistedState ?? null, this.questions);
       if (sanitized) this.state = sanitized;
     });
   }
@@ -123,7 +150,7 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     for (const sub of Array.from(this.subscribers)) {
       let frame = frameByRole.get(sub.role);
       if (!frame) {
-        const publicState = toPublicState(state, sub.role);
+        const publicState = toPublicState(state, this.questions, sub.role);
         frame = `event: state\ndata: ${JSON.stringify({ state: publicState })}\n\n`;
         frameByRole.set(sub.role, frame);
       }
@@ -170,7 +197,7 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   // ── 読み取り ───────────────────────────────────────────────
 
   async snapshot(role: Role): Promise<PublicState> {
-    return toPublicState(this.state, role);
+    return toPublicState(this.state, this.questions, role);
   }
 
   async personal(participantId: string): Promise<PersonalState> {
@@ -184,7 +211,7 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
    * しないと onopen が発火しない」という制約が、この構成では自然に守られる）。
    */
   async openEventStream(role: Role, participantId: string): Promise<ReadableStream<Uint8Array>> {
-    const initialSnapshot = toPublicState(this.state, role);
+    const initialSnapshot = toPublicState(this.state, this.questions, role);
     const initialYou = this.personalFromState(this.state, participantId);
 
     let cleanup = () => {};
@@ -236,7 +263,13 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     if (!checkRateLimit(this.voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)) {
       return { ok: false, reason: "rate-limited" };
     }
-    const { next, result } = applyCastVote(this.state, participantId, questionId, rawAnswer);
+    const { next, result } = applyCastVote(
+      this.state,
+      this.questions,
+      participantId,
+      questionId,
+      rawAnswer,
+    );
     if (next) {
       this.state = next;
       this.broadcastDebounced();
@@ -252,7 +285,7 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   // ── 管理操作(すべて即時 broadcast) ─────────────────────────
 
   async selectQuestion(questionId: string): Promise<void> {
-    this.state = applySelectQuestion(this.state, questionId);
+    this.state = applySelectQuestion(this.state, this.questions, questionId);
     this.broadcastNow(this.state);
   }
 
@@ -290,6 +323,73 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     // 「全リセット」は投票結果の初期化であって、主催者が登録した
     // ブランディングまで消してしまう操作ではない。
     this.state = applyResetAll(this.state);
+    this.broadcastNow(this.state);
+  }
+
+  // ── 設問の登録・編集・削除（別ストレージキー） ────────────────────
+  // questions は SessionState とは別キーだが、ballots/hidden/
+  // activeQuestionId は SessionState 側にあるので、編集・削除のたびに
+  // 両方の整合を取る必要がある（詳細は lib/session/mutations.ts の
+  // bumpRev/applyChoicesRemoved/applyQuestionRemoved のコメント参照）。
+
+  async getQuestions(): Promise<readonly Question[]> {
+    return this.questions;
+  }
+
+  private async persistQuestions(): Promise<void> {
+    // 設問の作成・編集・削除は頻度が低い管理操作なので、投票の persist()
+    // と違い素直に await する（応答前に書き込みを確定させたい）。
+    await this.ctx.storage.put(QUESTIONS_STORAGE_KEY, this.questions);
+  }
+
+  async createQuestion(data: ValidatedQuestionData): Promise<Question> {
+    const question = { ...data, id: crypto.randomUUID() } as Question;
+    this.questions = [...this.questions, question];
+    await this.persistQuestions();
+    // 新規設問はまだどの接続にも影響しない（出題中になり得ない）ので
+    // broadcast はしない。
+    return question;
+  }
+
+  async updateQuestion(
+    questionId: string,
+    data: ValidatedQuestionData,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const index = this.questions.findIndex((q) => q.id === questionId);
+    if (index === -1) return { ok: false, error: "設問が見つかりません。" };
+    const existing = this.questions[index];
+    const updated = { ...data, id: existing.id } as Question;
+
+    const nextQuestions = [...this.questions];
+    nextQuestions[index] = updated;
+    this.questions = nextQuestions;
+    await this.persistQuestions();
+
+    // 既存の投票（ballots）との整合を取る。ラベル修正など投票に影響
+    // しない変更なら bumpRev だけで済む（choices の id は編集画面側で
+    // 維持されるので、削除されていない限りここには来ない）。
+    const kindChanged = existing.kind !== updated.kind;
+    if (kindChanged) {
+      // 別の形式に変わった時点で既存回答は意味を持たない。resetQuestion
+      // と同じ後始末（出題中なら phase を idle・revealed を false に
+      // 戻すが、activeQuestionId 自体は維持する＝設問はまだ存在するため）。
+      this.state = applyResetQuestion(this.state, questionId);
+    } else if (existing.kind === "choice" && updated.kind === "choice") {
+      const removedChoiceIds = existing.choices
+        .filter((c) => !updated.choices.some((nc) => nc.id === c.id))
+        .map((c) => c.id);
+      this.state = applyChoicesRemoved(this.state, questionId, removedChoiceIds);
+    } else {
+      this.state = bumpRev(this.state);
+    }
+    this.broadcastNow(this.state);
+    return { ok: true };
+  }
+
+  async deleteQuestion(questionId: string): Promise<void> {
+    this.questions = this.questions.filter((q) => q.id !== questionId);
+    await this.persistQuestions();
+    this.state = applyQuestionRemoved(this.state, questionId);
     this.broadcastNow(this.state);
   }
 

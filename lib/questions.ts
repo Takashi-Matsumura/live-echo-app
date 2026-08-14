@@ -1,72 +1,131 @@
-import { deck as rawDeck } from "@/content/questions";
-import type { Deck, Question } from "@/lib/types";
+import type {
+  Choice,
+  ChoiceDraft,
+  Question,
+  QuestionDraft,
+  ValidatedQuestionData,
+} from "@/lib/types";
 
 export const DEFAULT_TEXT_MAX_LENGTH = 140;
 
+// 検証の上限値。ここに書いてある数字だけが「なぜこの値か」の根拠を持つ。
+const PROMPT_MAX_LENGTH = 200;
+const NOTE_MAX_LENGTH = 200;
+const CHOICE_LABEL_MAX_LENGTH = 60;
+const PLACEHOLDER_MAX_LENGTH = 60;
+/** components/result-bars.tsx の設計コメント「凡例なし・6本以下で
+ *  全値に直接ラベル」を崩さない上限。 */
+const MIN_CHOICES = 2;
+const MAX_CHOICES = 6;
+const MIN_TEXT_MAX_LENGTH = 10;
+const MAX_TEXT_MAX_LENGTH = 1000;
+
 /**
- * content/questions.ts をロードし、起動時に整合性を検証する。
- * - id の重複
- * - choice 設問の選択肢が空、choice id の重複
- * - text 設問の maxLength 未指定時は既定値を補完
+ * ★このファイルは副作用を一切持たない純粋関数の集まり。
+ * かつては content/questions.ts を読んで起動時に検証する「静的な
+ * デッキ」を持っていたが、設問は今は管理画面から登録・編集できる
+ * ランタイムデータになり、実体は Durable Object のストレージに移った
+ * （lib/session/session-do.ts）。ここの関数はすべて `questions` を
+ * 引数で受け取るだけで、どこにも設問リストを保持しない。
  *
- * ここで例外を投げるのは意図的。設問定義が壊れたまま起動してしまう方が
- * 当日の事故として遥かに重い。
+ * 起動時のシード読み込み（content/questions.ts → 初回起動時の初期設問）
+ * は lib/questions/seed.ts が担う。あちらはサーバー専用（DO からのみ
+ * import される）で、ここは components/text-vote-form.tsx のような
+ * クライアントコンポーネントからも安全に import できる。
  */
-function buildDeck(source: Deck): Deck {
-  const seenQuestionIds = new Set<string>();
-  const questions: Question[] = source.questions.map((q) => {
-    if (seenQuestionIds.has(q.id)) {
-      throw new Error(`questions.ts: 設問 id が重複しています: "${q.id}"`);
-    }
-    seenQuestionIds.add(q.id);
 
-    if (q.kind === "choice") {
-      if (q.choices.length === 0) {
-        throw new Error(`questions.ts: 設問 "${q.id}" の choices が空です`);
-      }
-      const seenChoiceIds = new Set<string>();
-      for (const c of q.choices) {
-        if (seenChoiceIds.has(c.id)) {
-          throw new Error(
-            `questions.ts: 設問 "${q.id}" 内で選択肢 id が重複しています: "${c.id}"`,
-          );
-        }
-        seenChoiceIds.add(c.id);
-      }
-      return q;
-    }
-
-    // text
-    return {
-      ...q,
-      maxLength: q.maxLength ?? DEFAULT_TEXT_MAX_LENGTH,
-    };
-  });
-
-  if (questions.length === 0) {
-    throw new Error("questions.ts: 設問が1つもありません");
-  }
-
-  return { title: source.title, questions };
+export function getQuestionById(
+  questions: readonly Question[],
+  id: string,
+): Question | undefined {
+  return questions.find((q) => q.id === id);
 }
 
-export const deck: Deck = buildDeck(rawDeck);
-
-const byId = new Map<string, Question>(deck.questions.map((q) => [q.id, q]));
-
-export function getQuestionById(id: string): Question | undefined {
-  return byId.get(id);
-}
-
-export function getQuestionIndex(id: string): number {
-  return deck.questions.findIndex((q) => q.id === id);
-}
-
-export function getFirstQuestionId(): string {
-  return deck.questions[0].id;
+export function getQuestionIndex(questions: readonly Question[], id: string): number {
+  return questions.findIndex((q) => q.id === id);
 }
 
 /** choice 設問で choiceId が実在するか */
 export function isValidChoiceId(question: Question, choiceId: string): boolean {
   return question.kind === "choice" && question.choices.some((c) => c.id === choiceId);
+}
+
+/**
+ * 管理画面のフォーム入力（QuestionDraft）を検証し、確定した
+ * ValidatedQuestionData に変換する。起動時のシード検証
+ * （lib/questions/seed.ts）と、admin フォームのバリデーションの両方が
+ * これを使う共通ロジック。例外は投げず Result を返す — 管理者の入力
+ * ミスでアプリ全体を落とすわけにはいかない。
+ */
+export function validateQuestionDraft(
+  draft: QuestionDraft,
+): { ok: true; data: ValidatedQuestionData } | { ok: false; error: string } {
+  const prompt = draft.prompt.trim();
+  if (prompt.length === 0) {
+    return { ok: false, error: "設問文を入力してください。" };
+  }
+  if (prompt.length > PROMPT_MAX_LENGTH) {
+    return { ok: false, error: `設問文が長すぎます（最大${PROMPT_MAX_LENGTH}文字）。` };
+  }
+
+  const noteTrimmed = draft.note.trim();
+  if (noteTrimmed.length > NOTE_MAX_LENGTH) {
+    return { ok: false, error: `補足が長すぎます（最大${NOTE_MAX_LENGTH}文字）。` };
+  }
+  const note = noteTrimmed.length > 0 ? noteTrimmed : undefined;
+
+  if (draft.kind === "choice") {
+    const choicesResult = validateChoiceDrafts(draft.choices);
+    if (!choicesResult.ok) return choicesResult;
+    return { ok: true, data: { kind: "choice", prompt, note, choices: choicesResult.choices } };
+  }
+
+  const placeholderTrimmed = draft.placeholder.trim();
+  if (placeholderTrimmed.length > PLACEHOLDER_MAX_LENGTH) {
+    return {
+      ok: false,
+      error: `プレースホルダーが長すぎます（最大${PLACEHOLDER_MAX_LENGTH}文字）。`,
+    };
+  }
+  const placeholder = placeholderTrimmed.length > 0 ? placeholderTrimmed : undefined;
+
+  const maxLength = Number.isInteger(draft.maxLength) ? draft.maxLength : DEFAULT_TEXT_MAX_LENGTH;
+  if (maxLength < MIN_TEXT_MAX_LENGTH || maxLength > MAX_TEXT_MAX_LENGTH) {
+    return {
+      ok: false,
+      error: `回答の最大文字数は${MIN_TEXT_MAX_LENGTH}〜${MAX_TEXT_MAX_LENGTH}の範囲で指定してください。`,
+    };
+  }
+
+  return { ok: true, data: { kind: "text", prompt, note, placeholder, maxLength } };
+}
+
+function validateChoiceDrafts(
+  drafts: readonly ChoiceDraft[],
+): { ok: true; choices: readonly Choice[] } | { ok: false; error: string } {
+  if (drafts.length < MIN_CHOICES) {
+    return { ok: false, error: `選択肢は${MIN_CHOICES}つ以上にしてください。` };
+  }
+  if (drafts.length > MAX_CHOICES) {
+    return { ok: false, error: `選択肢は${MAX_CHOICES}つまでにしてください。` };
+  }
+
+  const choices: Choice[] = [];
+  for (const draft of drafts) {
+    const label = draft.label.trim();
+    if (label.length === 0) {
+      return { ok: false, error: "空欄の選択肢があります。" };
+    }
+    if (label.length > CHOICE_LABEL_MAX_LENGTH) {
+      return {
+        ok: false,
+        error: `選択肢のラベルが長すぎます（最大${CHOICE_LABEL_MAX_LENGTH}文字）。`,
+      };
+    }
+    // 既存の選択肢を編集した行は id を維持し、新規に追加した行
+    // （id === null）にだけ新しい id を発行する。id を維持することで、
+    // ラベルの修正だけなら既存の投票（ballots）に一切影響しない。
+    choices.push({ id: draft.id ?? crypto.randomUUID(), label });
+  }
+  return { ok: true, choices };
 }
