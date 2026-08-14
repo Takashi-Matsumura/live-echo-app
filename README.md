@@ -54,7 +54,9 @@ npm run preview
 npm run deploy
 ```
 
-初回デプロイ時、Cloudflare アカウントに `workers.dev` サブドメインが未登録だとデプロイが失敗する。その場合は表示される URL（`https://dash.cloudflare.com/<account-id>/workers/onboarding`）でサブドメインを登録してから再実行する。以降は `https://<worker名>.<サブドメイン>.workers.dev` で公開される。カスタムドメインは不要（`workers.dev` は個人・小規模用途を想定した無料のドメインとして提供されている）。
+初回デプロイ時、Cloudflare アカウントに `workers.dev` サブドメインが未登録だとデプロイが失敗する。その場合は表示される URL（`https://dash.cloudflare.com/<account-id>/workers/onboarding`）でサブドメインを登録してから再実行する。
+
+本番公開ドメインは `https://pineville.dev`。Cloudflare Registrar で購入済みのゾーンを `wrangler.jsonc` の `routes`（`custom_domain: true`）で紐付けており、`npm run deploy` のたびに DNS/SSL 込みで自動的にプロビジョニングされる。`https://<worker名>.<サブドメイン>.workers.dev` も並行して有効なまま残る（フォールバック URL として利用可）。QR / 投影画面の URL は `PUBLIC_BASE_URL` を設定しなくてもリクエストの Host ヘッダーから自動的に `pineville.dev` を組み立てる。
 
 `wrangler.jsonc` を変更した場合は `npm run cf-typegen` で `cloudflare-env.d.ts`（バインディングの型定義）を再生成する。
 
