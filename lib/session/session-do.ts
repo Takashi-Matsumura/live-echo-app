@@ -14,6 +14,9 @@ import {
 } from "@/lib/session/mutations";
 import { checkRateLimit, type RateLimitBuckets } from "@/lib/rate-limit";
 import type {
+  BrandLogo,
+  BrandLogoMeta,
+  BrandLogoMime,
   Phase,
   PersonalState,
   PublicState,
@@ -30,6 +33,25 @@ const VOTE_WINDOW_MS = 60_000;
 const LOGIN_LIMIT = 10;
 const LOGIN_WINDOW_MS = 60_000;
 const STATE_STORAGE_KEY = "state";
+// ブランド設定は SessionState（"state" キー）とは独立したキーに保存する。
+// state は投票のたびに publish() で全接続へ SSE 配信されるため、画像バイト
+// 列をそこに混ぜてはいけない。読み書きの頻度も低いのでホットパス外に置く。
+const BRAND_LOGO_STORAGE_KEY = "brandLogo";
+
+const VALID_LOGO_MIMES: readonly BrandLogoMime[] = ["image/png", "image/jpeg", "image/webp"];
+
+/** DO ストレージから読んだ生データの型を検証する。sanitize.ts と同じ考え方
+ * （想定外の形なら例外にせず null にして「無し」扱いにする）。 */
+function isBrandLogo(value: unknown): value is BrandLogo {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.bytes instanceof Uint8Array &&
+    typeof v.mime === "string" &&
+    (VALID_LOGO_MIMES as readonly string[]).includes(v.mime) &&
+    typeof v.updatedAt === "number"
+  );
+}
 
 const encoder = new TextEncoder();
 
@@ -272,7 +294,33 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   }
 
   async resetAll(): Promise<void> {
+    // ★ブランド設定（ロゴ）は集計とは無関係なので、ここでは触らない。
+    // 「全リセット」は投票結果の初期化であって、主催者が登録した
+    // ブランディングまで消してしまう操作ではない。
     this.state = applyResetAll(this.state);
     this.broadcastNow(this.state);
+  }
+
+  // ── ブランド設定（別ストレージキー。SSE 配信には載せない） ─────────
+
+  async getBrandLogo(): Promise<BrandLogo | null> {
+    const raw = await this.ctx.storage.get<unknown>(BRAND_LOGO_STORAGE_KEY);
+    return isBrandLogo(raw) ? raw : null;
+  }
+
+  /** ヘッダー表示側は画像バイト列そのものは要らないので、軽量版を用意する。 */
+  async getBrandLogoMeta(): Promise<BrandLogoMeta | null> {
+    const logo = await this.getBrandLogo();
+    if (!logo) return null;
+    return { mime: logo.mime, updatedAt: logo.updatedAt };
+  }
+
+  async setBrandLogo(bytes: Uint8Array, mime: BrandLogoMime): Promise<void> {
+    const logo: BrandLogo = { bytes, mime, updatedAt: Date.now() };
+    await this.ctx.storage.put(BRAND_LOGO_STORAGE_KEY, logo);
+  }
+
+  async clearBrandLogo(): Promise<void> {
+    await this.ctx.storage.delete(BRAND_LOGO_STORAGE_KEY);
   }
 }

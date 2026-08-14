@@ -1,3 +1,4 @@
+import { BrandMark } from "@/components/brand-mark";
 import { LiveStateProvider } from "@/components/live-state-provider";
 import { PresentScreen } from "@/components/present-screen";
 import { QrPanel } from "@/components/qr-panel";
@@ -16,7 +17,7 @@ export default async function PresentPage() {
       initialYou={{ questionId: null, myAnswer: null }}
       view="admin"
     >
-      <PresentScreen qrPanel={<QrPanel />} />
+      <PresentScreen qrPanel={<QrPanel />} brandMark={<BrandMark size="sm" />} />
     </LiveStateProvider>
   );
 }

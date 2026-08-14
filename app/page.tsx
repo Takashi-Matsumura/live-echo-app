@@ -1,3 +1,4 @@
+import { BrandMark } from "@/components/brand-mark";
 import { ConnectionPill } from "@/components/connection-pill";
 import { LiveStateProvider } from "@/components/live-state-provider";
 import { ParticipantScreen } from "@/components/participant-screen";
@@ -16,6 +17,11 @@ export default async function Home() {
   return (
     <LiveStateProvider initialState={state} initialYou={you} view="participant">
       <div className="flex min-h-full flex-1 flex-col bg-zinc-50 dark:bg-black">
+        {/* 未登録なら BrandMark が null を返すので分岐は不要。ParticipantScreen
+            と同じ max-w-md に揃えて中央寄せする。 */}
+        <div className="mx-auto flex w-full max-w-md items-center px-6 pt-6">
+          <BrandMark size="sm" />
+        </div>
         <ParticipantScreen />
       </div>
       <ConnectionPill />
