@@ -199,10 +199,15 @@ function QuestionRow({
 
           {/* リセットは破壊的操作（回答・結果公開状態が消える）なので、
               ネイティブ <dialog> で確認を挟む。showModal() が Esc キー・
-              フォーカストラップ・背景クリックでの扱いも面倒を見てくれる。 */}
+              フォーカストラップ・背景クリックでの扱いも面倒を見てくれる。
+              ★ m-auto は必須。dialog:modal の UA スタイルは margin: auto で
+              画面中央に配置するが、Tailwind の preflight が * に margin: 0
+              を当てており、preflight は author の通常優先度なので UA
+              スタイルに（詳細度に関係なく）必ず勝つ。結果、m-auto を
+              明示しないと dialog が左上に張り付く（実機で確認済み）。 */}
           <dialog
             ref={resetDialogRef}
-            className="rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
+            className="m-auto rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
           >
             <form method="dialog" className="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-4 p-5">
               <p className="font-medium">この設問をリセットしますか？</p>
