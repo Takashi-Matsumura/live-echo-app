@@ -4,27 +4,44 @@ import { useState, useTransition } from "react";
 import { submitVote } from "@/app/actions";
 import { useLiveState } from "@/components/live-state-provider";
 import { asFormAction } from "@/lib/form-action";
-import { answerText } from "@/lib/questions";
+import { selectedChoiceIds } from "@/lib/questions";
 import { voteErrorMessage } from "@/lib/vote-messages";
-import type { ChoiceQuestion, VoteResult } from "@/lib/types";
+import type { MultiChoiceQuestion, VoteResult } from "@/lib/types";
 
 /**
- * 単一選択式の投票フォーム。選択肢をタップした瞬間には送信しない —
- * 複数選択式（multi-vote-form.tsx）・自由記述（text-vote-form.tsx）と
- * 同じ「選ぶ／書く → 回答するボタンで送信」という一貫した操作にするため。
+ * 複数選択式の投票フォーム。単一選択（choice-vote-form.tsx）・自由記述
+ * （text-vote-form.tsx）と同じ「選ぶ／書く → 回答するボタンで送信」と
+ * いう操作に揃えている。タップした瞬間には送信しない — 選択肢を選び
+ * 終えるまでの途中経過を都度サーバへ送ると (1) 投票のレート制限
+ * （20回/60秒）にすぐ達し、(2) 投影画面に選択途中の状態がちらつく。
+ * ここでは選択をローカル state でトグルし、ボタンで一括送信する。
  *
  * 設問が切り替わったときに state をリセットするため、呼び出し側
  * （participant-screen.tsx）で `key={question.id}` を付けてマウントし直す
- * 前提（他の投票フォームと同じ規約）。
+ * 前提（text-vote-form.tsx と同じ規約）。
  */
-export function ChoiceVoteForm({ question }: { question: ChoiceQuestion }) {
+export function MultiVoteForm({ question }: { question: MultiChoiceQuestion }) {
   const { you, markAnswered } = useLiveState();
   const [pending, startTransition] = useTransition();
-  const [selected, setSelected] = useState<string | null>(() => answerText(you.myAnswer));
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(selectedChoiceIds(you.myAnswer)),
+  );
   const [error, setError] = useState<string | null>(null);
 
   const boundAction = submitVote.bind(null, question.id);
   const formAction = asFormAction(boundAction);
+
+  function toggle(choiceId: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(choiceId)) {
+        next.delete(choiceId);
+      } else {
+        next.add(choiceId);
+      }
+      return next;
+    });
+  }
 
   return (
     <form
@@ -32,12 +49,12 @@ export function ChoiceVoteForm({ question }: { question: ChoiceQuestion }) {
       onSubmit={(event) => {
         event.preventDefault();
         setError(null);
-        if (!selected) return;
+        if (selected.size === 0) return;
         const formData = new FormData(event.currentTarget);
         startTransition(async () => {
           const result: VoteResult = await boundAction(formData);
           if (result.ok) {
-            markAnswered(question.id, selected);
+            markAnswered(question.id, question.choices.map((c) => c.id).filter((id) => selected.has(id)));
           } else {
             setError(voteErrorMessage(result.reason));
           }
@@ -47,7 +64,7 @@ export function ChoiceVoteForm({ question }: { question: ChoiceQuestion }) {
     >
       <div className="flex flex-col gap-3" role="list">
         {question.choices.map((choice) => {
-          const isChecked = selected === choice.id;
+          const isChecked = selected.has(choice.id);
           return (
             <label
               key={choice.id}
@@ -60,11 +77,11 @@ export function ChoiceVoteForm({ question }: { question: ChoiceQuestion }) {
             >
               <span>{choice.label}</span>
               <input
-                type="radio"
+                type="checkbox"
                 name="answer"
                 value={choice.id}
                 checked={isChecked}
-                onChange={() => setSelected(choice.id)}
+                onChange={() => toggle(choice.id)}
                 className="sr-only"
               />
               {isChecked && <span aria-hidden>✓</span>}
@@ -73,15 +90,16 @@ export function ChoiceVoteForm({ question }: { question: ChoiceQuestion }) {
         })}
       </div>
 
-      {you.myAnswer && (
-        <p className="text-sm text-black/50 dark:text-white/50">
-          回答済み。選び直して再回答できます
-        </p>
-      )}
+      <div className="flex items-center justify-between text-sm text-black/50 dark:text-white/50">
+        <span>
+          {you.myAnswer ? "回答済み。選び直して再回答できます" : "当てはまるものをすべて選んでください"}
+        </span>
+        <span className="tabular-nums">{selected.size}個選択中</span>
+      </div>
 
       <button
         type="submit"
-        disabled={pending || !selected}
+        disabled={pending || selected.size === 0}
         className="self-start rounded-full bg-[var(--accent)] px-6 py-3 font-medium text-white disabled:opacity-50"
       >
         {you.myAnswer ? "回答し直す" : "回答する"}

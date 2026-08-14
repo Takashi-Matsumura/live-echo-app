@@ -22,6 +22,15 @@ export type ChoiceQuestion = {
   readonly choices: readonly Choice[];
 };
 
+/** 複数選択式。個数の上限は設けない（最低1個選べば送信できる）。 */
+export type MultiChoiceQuestion = {
+  readonly kind: "multi";
+  readonly id: string;
+  readonly prompt: string;
+  readonly note?: string;
+  readonly choices: readonly Choice[];
+};
+
 export type TextQuestion = {
   readonly kind: "text";
   readonly id: string;
@@ -32,7 +41,11 @@ export type TextQuestion = {
   readonly maxLength?: number;
 };
 
-export type Question = ChoiceQuestion | TextQuestion;
+/** choices を持つ設問（単一選択・複数選択）。ResultBars など、投票の
+ *  見せ方が同じで済む箇所はこちらでまとめて受ける。 */
+export type AnyChoiceQuestion = ChoiceQuestion | MultiChoiceQuestion;
+
+export type Question = ChoiceQuestion | MultiChoiceQuestion | TextQuestion;
 
 export type Deck = {
   readonly title: string;
@@ -52,11 +65,11 @@ export type ChoiceDraft = {
 };
 
 export type QuestionDraft = {
-  readonly kind: "choice" | "text";
+  readonly kind: "choice" | "multi" | "text";
   readonly prompt: string;
   /** 空文字列は「note なし」を表す */
   readonly note: string;
-  /** kind === "choice" のときだけ使う */
+  /** kind === "choice" | "multi" のときだけ使う */
   readonly choices: readonly ChoiceDraft[];
   /** kind === "text" のときだけ使う。空文字列は「placeholder なし」 */
   readonly placeholder: string;
@@ -77,6 +90,12 @@ export type ValidatedQuestionData =
       readonly choices: readonly Choice[];
     }
   | {
+      readonly kind: "multi";
+      readonly prompt: string;
+      readonly note?: string;
+      readonly choices: readonly Choice[];
+    }
+  | {
       readonly kind: "text";
       readonly prompt: string;
       readonly note?: string;
@@ -88,14 +107,18 @@ export type ValidatedQuestionData =
 
 export type Phase = "idle" | "open" | "closed";
 
+/** 1参加者の回答。choice なら choiceId、text なら本文、multi なら
+ *  choiceId の配列（1個以上、question.choices の順に正規化済み）。 */
+export type Ballot = string | readonly string[];
+
 export type SessionState = {
   /** 単調増加。SSE の古いフレーム破棄に使う */
   readonly rev: number;
   readonly activeQuestionId: string | null;
   readonly phase: Phase;
   readonly revealed: boolean;
-  /** questionId -> participantId -> 回答（choice なら choiceId、text なら本文） */
-  readonly ballots: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** questionId -> participantId -> 回答 */
+  readonly ballots: Readonly<Record<string, Readonly<Record<string, Ballot>>>>;
   /** 自由記述のモデレーション: questionId -> 伏せた participantId の配列 */
   readonly hidden: Readonly<Record<string, readonly string[]>>;
   readonly updatedAt: number;
@@ -104,7 +127,16 @@ export type SessionState = {
 // ── クライアントに配る形 ────────────────────────────────────
 
 export type PublicResults =
-  | { readonly kind: "choice"; readonly counts: Readonly<Record<string, number>> }
+  // kind は結果の「描画形」（棒グラフ or 回答一覧）を表し、設問の kind
+  // とは1対1ではない。"choice" は単一選択・複数選択の両方を含む。
+  // respondents はこの設問に回答した人数（% の分母）。単一選択では
+  // counts の総和と一致するが、複数選択では一致しない（合計が100%を
+  // 超えうる）。
+  | {
+      readonly kind: "choice";
+      readonly counts: Readonly<Record<string, number>>;
+      readonly respondents: number;
+    }
   | {
       readonly kind: "text";
       /**
@@ -140,7 +172,7 @@ export type PersonalState = {
    * 誤って使ってしまう（例: 選択肢 id がたまたま一致してチェックが付く）。
    */
   readonly questionId: string | null;
-  readonly myAnswer: string | null;
+  readonly myAnswer: Ballot | null;
 };
 
 export type ServerEvent =

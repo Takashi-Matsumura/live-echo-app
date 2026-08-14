@@ -1,5 +1,6 @@
-import { getQuestionById, getQuestionIndex } from "@/lib/questions";
+import { answerText, getQuestionById, getQuestionIndex, isChoiceLike, selectedChoiceIds } from "@/lib/questions";
 import type {
+  Ballot,
   PublicResults,
   PublicState,
   Question,
@@ -59,21 +60,27 @@ export function toPublicState(
 
 function buildResults(
   question: Question,
-  ballots: Readonly<Record<string, string>>,
+  ballots: Readonly<Record<string, Ballot>>,
   hiddenParticipantIds: readonly string[],
   role: Role,
 ): PublicResults {
-  if (question.kind === "choice") {
+  if (isChoiceLike(question)) {
     const counts: Record<string, number> = {};
     for (const choice of question.choices) counts[choice.id] = 0;
     for (const answer of Object.values(ballots)) {
-      if (answer in counts) counts[answer] += 1;
+      for (const id of selectedChoiceIds(answer)) {
+        if (id in counts) counts[id] += 1;
+      }
     }
-    return { kind: "choice", counts };
+    // respondents はこの設問に回答した人数（% の分母）。単一選択では
+    // counts の総和と一致するが、複数選択では一致しない。
+    return { kind: "choice", counts, respondents: Object.keys(ballots).length };
   }
 
   const hiddenSet = new Set(hiddenParticipantIds);
-  const entries = Object.entries(ballots);
+  const entries = Object.entries(ballots)
+    .map(([id, answer]): [string, string] => [id, answerText(answer) ?? ""])
+    .filter(([, text]) => text.length > 0);
 
   // admin（モデレーション UI）は伏せた回答も含めて全件見える必要がある
   // （でなければ一度伏せた回答を選んで戻すすべが無くなる）。id には

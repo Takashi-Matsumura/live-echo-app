@@ -14,6 +14,7 @@ import {
 import { QuestionForm } from "@/components/question-form";
 import { ResultBars } from "@/components/result-bars";
 import { useLiveState } from "@/components/live-state-provider";
+import { isChoiceLike, QUESTION_KIND_LABELS } from "@/lib/questions";
 import type { Deck, Phase, PublicResults, Question } from "@/lib/types";
 
 export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
@@ -30,9 +31,10 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
     });
   }
 
-  // 出題中の設問が切り替わったら、リストがスクロールしていても見える位置まで
-  // 自動でスクロールする（下の <ul> に max-h + overflow-y-auto を付けたため、
-  // 設問数が増えるとリストの途中に隠れうる）。
+  // 出題中の設問が切り替わったら、パネルがスクロールしていても見える位置まで
+  // 自動でスクロールする（スクロール領域は components/admin-tabs.tsx 側。
+  // scrollIntoView は最も近いスクロール可能な祖先を自動で探すので、
+  // 領域がどちらにあっても書き換え不要）。
   useEffect(() => {
     activeItemRef.current?.scrollIntoView({ block: "nearest" });
   }, [state.question?.id]);
@@ -58,8 +60,9 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
             設問一覧と「出題中の設問の詳細」はかつて別セクションだったが、
             1つのアコーディオンに統合した: 出題中の行だけが自動的に展開して
             操作ボタン・結果を表示し、他の行は要約のみの最小高さで並ぶ。
-            それでも十分な設問数・回答数になった場合の保険として、リスト
-            自体にも高さ上限つきスクロールを残す（ビューポート相対）。 */}
+            スクロールはこのパネル全体（この「新しい設問を追加」ボタンから
+            下）を包む components/admin-tabs.tsx 側の領域が担うため、ここでは
+            高さを制限しない。 */}
         <button
           type="button"
           onClick={openCreateForm}
@@ -73,7 +76,7 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
             設問がまだ登録されていません。「新しい設問を追加」から作成してください。
           </p>
         ) : (
-          <ul className="flex max-h-[65vh] flex-col gap-2 overflow-y-auto pr-1">
+          <ul className="flex flex-col gap-2">
             {questions.map((q, i) => {
               const isActive = state.question?.id === q.id;
               return (
@@ -174,7 +177,7 @@ function QuestionRow({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-xs text-black/40 dark:text-white/40">
-            {question.kind === "choice" ? "選択式" : "自由記述"}
+            {QUESTION_KIND_LABELS[question.kind]}
           </p>
           <p className="font-medium">{question.prompt}</p>
         </div>
@@ -442,8 +445,15 @@ function AdminResults({
   pending: boolean;
   run: (fn: () => Promise<void>) => void;
 }) {
-  if (results.kind === "choice" && question.kind === "choice") {
-    return <ResultBars question={question} counts={results.counts} closed={closed} />;
+  if (results.kind === "choice" && isChoiceLike(question)) {
+    return (
+      <ResultBars
+        question={question}
+        counts={results.counts}
+        closed={closed}
+        respondents={results.respondents}
+      />
+    );
   }
 
   if (results.kind === "text") {

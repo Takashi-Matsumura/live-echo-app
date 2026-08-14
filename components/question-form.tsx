@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useActionState } from "react";
 import { createQuestion, updateQuestion, type QuestionFormState } from "@/app/admin/actions";
+import { isChoiceLike, MAX_CHOICES, MIN_CHOICES, QUESTION_KIND_LABELS } from "@/lib/questions";
 import type { Question } from "@/lib/types";
+
+const QUESTION_KINDS = Object.keys(QUESTION_KIND_LABELS) as readonly Question["kind"][];
 
 const initialState: QuestionFormState = {};
 
@@ -18,7 +21,7 @@ type ChoiceRow = {
 };
 
 function initialChoiceRows(question?: Question): ChoiceRow[] {
-  if (question?.kind === "choice") {
+  if (isChoiceLike(question)) {
     return question.choices.map((c) => ({ key: c.id, id: c.id, defaultLabel: c.label }));
   }
   // 新規作成、または元が自由記述だった場合は空の2行から始める（最小件数）。
@@ -46,7 +49,7 @@ export function QuestionForm(
   const action = props.mode === "create" ? createQuestion : updateQuestion.bind(null, props.question.id);
   const [state, formAction, pending] = useActionState(action, initialState);
 
-  const [kind, setKind] = useState<"choice" | "text">(question?.kind ?? "choice");
+  const [kind, setKind] = useState<Question["kind"]>(question?.kind ?? "choice");
   const [choiceRows, setChoiceRows] = useState<ChoiceRow[]>(() => initialChoiceRows(question));
 
   // 送信中 → 送信完了 かつ エラー無し、の遷移だけを検知してダイアログを
@@ -72,12 +75,11 @@ export function QuestionForm(
       <p className="font-medium">{mode === "create" ? "新しい設問を追加" : "設問を編集"}</p>
 
       <div className="flex gap-2" role="radiogroup" aria-label="設問の種類">
-        <KindButton active={kind === "choice"} onClick={() => setKind("choice")}>
-          選択式
-        </KindButton>
-        <KindButton active={kind === "text"} onClick={() => setKind("text")}>
-          自由記述
-        </KindButton>
+        {QUESTION_KINDS.map((k) => (
+          <KindButton key={k} active={kind === k} onClick={() => setKind(k)}>
+            {QUESTION_KIND_LABELS[k]}
+          </KindButton>
+        ))}
         <input type="hidden" name="kind" value={kind} />
       </div>
       {mode === "edit" && question && question.kind !== kind && (
@@ -108,9 +110,11 @@ export function QuestionForm(
         />
       </label>
 
-      {kind === "choice" ? (
+      {kind !== "text" ? (
         <div className="flex flex-col gap-2">
-          <span className="text-sm">選択肢（2〜6個）</span>
+          <span className="text-sm">
+            選択肢（{MIN_CHOICES}〜{MAX_CHOICES}個）
+          </span>
           <div className="flex flex-col gap-2">
             {choiceRows.map((row) => (
               <div key={row.key} className="flex items-center gap-2">
@@ -124,7 +128,7 @@ export function QuestionForm(
                 />
                 <button
                   type="button"
-                  disabled={choiceRows.length <= 2}
+                  disabled={choiceRows.length <= MIN_CHOICES}
                   onClick={() => removeChoiceRow(row.key)}
                   className="shrink-0 text-xs text-black/40 underline disabled:opacity-30 dark:text-white/40"
                 >
@@ -135,7 +139,7 @@ export function QuestionForm(
           </div>
           <button
             type="button"
-            disabled={choiceRows.length >= 6}
+            disabled={choiceRows.length >= MAX_CHOICES}
             onClick={addChoiceRow}
             className="self-start rounded-full border border-black/10 px-4 py-1.5 text-sm disabled:opacity-50 dark:border-white/15"
           >

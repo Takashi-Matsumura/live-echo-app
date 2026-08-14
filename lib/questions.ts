@@ -1,4 +1,6 @@
 import type {
+  AnyChoiceQuestion,
+  Ballot,
   Choice,
   ChoiceDraft,
   Question,
@@ -14,11 +16,28 @@ const NOTE_MAX_LENGTH = 200;
 const CHOICE_LABEL_MAX_LENGTH = 60;
 const PLACEHOLDER_MAX_LENGTH = 60;
 /** components/result-bars.tsx の設計コメント「凡例なし・6本以下で
- *  全値に直接ラベル」を崩さない上限。 */
-const MIN_CHOICES = 2;
-const MAX_CHOICES = 6;
+ *  全値に直接ラベル」を崩さない上限。単一選択・複数選択の両方に適用する。 */
+export const MIN_CHOICES = 2;
+export const MAX_CHOICES = 6;
 const MIN_TEXT_MAX_LENGTH = 10;
 const MAX_TEXT_MAX_LENGTH = 1000;
+
+/** 設問タイプの日本語ラベル。Record にしているので、kind を追加したのに
+ *  ここへの追加を忘れると型エラーになる（三項演算子の直書きだと防げない）。 */
+export const QUESTION_KIND_LABELS: Record<Question["kind"], string> = {
+  choice: "選択式",
+  multi: "複数選択式",
+  text: "自由記述",
+};
+
+/** choices を持つ設問（単一選択・複数選択）かどうか。この判定を1箇所に
+ *  集約することで、`kind === "choice"` の書き漏れ（複数選択が自由記述
+ *  扱いに落ちる事故）を防ぐ。 */
+export function isChoiceLike(
+  question: Question | null | undefined,
+): question is AnyChoiceQuestion {
+  return question?.kind === "choice" || question?.kind === "multi";
+}
 
 /**
  * ★このファイルは副作用を一切持たない純粋関数の集まり。
@@ -45,9 +64,24 @@ export function getQuestionIndex(questions: readonly Question[], id: string): nu
   return questions.findIndex((q) => q.id === id);
 }
 
-/** choice 設問で choiceId が実在するか */
+/** choice/multi 設問で choiceId が実在するか */
 export function isValidChoiceId(question: Question, choiceId: string): boolean {
-  return question.kind === "choice" && question.choices.some((c) => c.id === choiceId);
+  return isChoiceLike(question) && question.choices.some((c) => c.id === choiceId);
+}
+
+/** Ballot から選択された choiceId の配列を取り出す。choice/multi 専用。
+ *  choice の Ballot は単一の choiceId（string）なので配列化するだけ。
+ *  text の設問には呼ばないこと（本文を choiceId 扱いしてしまう）。 */
+export function selectedChoiceIds(answer: Ballot | null | undefined): readonly string[] {
+  if (answer == null) return [];
+  return typeof answer === "string" ? [answer] : answer;
+}
+
+/** Ballot から自由記述の本文を取り出す。text 専用。choice/multi の
+ *  Ballot（配列）が渡った場合は防御的に null を返す。 */
+export function answerText(answer: Ballot | null | undefined): string | null {
+  if (answer == null || typeof answer !== "string") return null;
+  return answer;
 }
 
 /**
@@ -74,10 +108,10 @@ export function validateQuestionDraft(
   }
   const note = noteTrimmed.length > 0 ? noteTrimmed : undefined;
 
-  if (draft.kind === "choice") {
+  if (draft.kind === "choice" || draft.kind === "multi") {
     const choicesResult = validateChoiceDrafts(draft.choices);
     if (!choicesResult.ok) return choicesResult;
-    return { ok: true, data: { kind: "choice", prompt, note, choices: choicesResult.choices } };
+    return { ok: true, data: { kind: draft.kind, prompt, note, choices: choicesResult.choices } };
   }
 
   const placeholderTrimmed = draft.placeholder.trim();

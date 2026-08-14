@@ -26,6 +26,11 @@ const TABS: { id: Tab; label: string }[] = [
  * 呼び出し側は qr-panel.tsx を present-screen.tsx に渡すのと同じ
  * server-in-client の受け渡しパターンで questionsPanel/brandPanel を渡す
  * （app/admin/page.tsx 参照）。
+ *
+ * ★スクロール領域はここ（タブ本体の下）だけに区切る。タブの切り替えボタン
+ * 自体は shrink-0 で常に見える位置に固定し、パネルの中身だけが
+ * min-h-0 + overflow-y-auto で縦スクロールする。呼び出し元（app/admin/page.tsx）
+ * がページ全体の高さを viewport に固定している前提。
  */
 export function AdminTabs({
   questionsPanel,
@@ -38,11 +43,11 @@ export function AdminTabs({
   const panels: Record<Tab, ReactNode> = { questions: questionsPanel, brand: brandPanel };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <div
         role="tablist"
         aria-label="管理メニュー"
-        className="flex gap-6 border-b border-black/10 dark:border-white/15"
+        className="flex shrink-0 gap-6 border-b border-black/10 dark:border-white/15"
       >
         {TABS.map((t) => (
           <button
@@ -64,17 +69,19 @@ export function AdminTabs({
         ))}
       </div>
 
-      {TABS.map((t) => (
-        <div
-          key={t.id}
-          id={`admin-panel-${t.id}`}
-          role="tabpanel"
-          aria-labelledby={`admin-tab-${t.id}`}
-          hidden={tab !== t.id}
-        >
-          {panels[t.id]}
-        </div>
-      ))}
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        {TABS.map((t) => (
+          <div
+            key={t.id}
+            id={`admin-panel-${t.id}`}
+            role="tabpanel"
+            aria-labelledby={`admin-tab-${t.id}`}
+            hidden={tab !== t.id}
+          >
+            {panels[t.id]}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
