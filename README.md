@@ -137,6 +137,44 @@ caffeinate -dims npm start
 
 このアプリが必要とするのは「参加者の投票を集計してサーバから全員に配る」という**サーバ発の一方向 push**だけで、クライアントからの書き込みは投票・管理操作という別種のリクエストとして扱えば十分だった。そのため双方向の常時コネクションを持つ WebSocket ではなく、素の HTTP で完結し自動再接続も標準搭載の SSE を選んでいる。会場のトラベルルータ越しでも `curl http://<IP>:3000/api/state` で疎通確認できる（「開演前チェック」参照）のも、素の HTTP であることの実利。
 
+## Cloudflare Workers への移行（進行中）
+
+ローカル Mac Studio 運用から Cloudflare Workers + Durable Objects への移行を進めている。会場 LAN 運用の手順（上記「Tailscale での実機検証」「当日の運用手順」）は移行完了後に置き換える予定。
+
+### Free プラン vs Paid プランの CPU 時間実測
+
+`@opennextjs/cloudflare` でビルドし、Durable Object 導入前の状態で `*.workers.dev` にデプロイし、`wrangler tail --format json` で実測した `/`（参加者画面の SSR）への CPU 時間。
+
+**Workers Free**（上限 10ms/呼び出し）
+
+| # | CPU時間 |
+|---|---|
+| 1 | 65ms |
+| 2 | 111ms |
+| 3 | 23ms |
+| 4 | 10ms |
+| 5 | 122ms |
+| 6 | 9ms |
+
+**Workers Paid**（上限 30秒/呼び出し、$5/月〜）
+
+| # | CPU時間 | 結果 |
+|---|---|---|
+| 1 | 150ms | ok |
+| 2 | 191ms | ok |
+| 3 | 11ms | ok |
+| 4 | 10ms | ok |
+| 5 | 17ms | ok |
+| 6 | 194ms | ok |
+| 7 | 130ms | ok |
+| 8 | 9ms | ok |
+| 9 | 179ms | ok |
+| 10 | 14ms | ok |
+
+コールドスタート時の CPU コストは Free/Paid で変わらず 100〜200ms 程度かかる（isolate が新規に立ち上がるたびに発生し、ウォームな場合は 9〜17ms まで下がる）。Free の 10ms/呼び出しという上限はこのコールドスタートコストに対して非現実的で、超過すると `Error 1102` が返る。Paid はデフォルトで上限が 30 秒に緩和されるため、CPU コストの実測値自体は変わらないが、超過によるエラーは発生しなくなる。**このアプリを Cloudflare Workers 上で動かすには Workers Paid が実質必須**という結論に至った。
+
+バンドルサイズは gzip 後 約1.06 MiB で、Free の 3 MiB 制限には十分な余裕があった（Paid の壁は CPU 時間のみ）。
+
 ## ライセンス
 
 [MIT](./LICENSE)
