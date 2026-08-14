@@ -21,9 +21,20 @@ export const env = {
   get SESSION_SECRET(): string {
     return readEnv("SESSION_SECRET");
   },
-  /** 未設定なら null。設定時は QR / present 画面の URL 生成を上書きする */
+  /**
+   * 未設定なら null。設定時は QR / present 画面の URL 生成を上書きする。
+   * ブラケット記法（process.env["PUBLIC_BASE_URL"]）で読むのが重要: ドット記法
+   * （process.env.PUBLIC_BASE_URL）で書くと Next.js のビルド時バンドラがそれを
+   * リテラル参照とみなし、ビルド時点の .env.local 等の値をそのまま静的置換して
+   * しまう。開発機の Tailscale IP のようなローカル上書きが Cloudflare Worker
+   * バンドルに焼き込まれ、本番の Host ヘッダー由来の正しい URL を黙って上書き
+   * してしまう、というのが実際に起きたバグ。上の readEnv() も同じブラケット
+   * 記法を既に使っているが、あちらは ADMIN_PASSWORD / SESSION_SECRET を
+   * Cloudflare Secrets からランタイムに解決するため（そもそもビルドへ焼き込ま
+   * れては困る）の対策で、狙いは異なる。
+   */
   get PUBLIC_BASE_URL(): string | null {
-    const v = process.env.PUBLIC_BASE_URL?.trim();
+    const v = process.env["PUBLIC_BASE_URL"]?.trim();
     return v && v.length > 0 ? v : null;
   },
 };

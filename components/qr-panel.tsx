@@ -4,7 +4,11 @@ import { env } from "@/lib/env";
 
 /**
  * リクエストの Host ヘッダーから QR の URL を組み立てる。
- * PUBLIC_BASE_URL が設定されていればそれを最優先する（独自ドメイン等）。
+ * PUBLIC_BASE_URL が設定されていればそれを最優先する（将来のカスタムドメイン用）。
+ * 通常の Cloudflare 運用では Host ヘッダーは常に正しいので、この上書きは
+ * 未設定のままである想定。ローカルネットワーク検証のために .env.local で
+ * 上書きする用途ではない（それがビルドに焼き込まれて本番 URL を壊した実バグの
+ * 原因だった。lib/env.ts 参照）。
  */
 async function resolveBaseUrl(): Promise<string> {
   if (env.PUBLIC_BASE_URL) return env.PUBLIC_BASE_URL;
