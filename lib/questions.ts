@@ -66,20 +66,6 @@ export function getFirstQuestionId(): string {
   return deck.questions[0].id;
 }
 
-export function getAdjacentQuestionId(
-  currentId: string | null,
-  dir: -1 | 1,
-): string | null {
-  if (currentId === null) {
-    return dir === 1 ? deck.questions[0].id : null;
-  }
-  const idx = getQuestionIndex(currentId);
-  if (idx === -1) return deck.questions[0].id;
-  const nextIdx = idx + dir;
-  if (nextIdx < 0 || nextIdx >= deck.questions.length) return null;
-  return deck.questions[nextIdx].id;
-}
-
 /** choice 設問で choiceId が実在するか */
 export function isValidChoiceId(question: Question, choiceId: string): boolean {
   return question.kind === "choice" && question.choices.some((c) => c.id === choiceId);

@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useTransition, type ReactNode, type Ref } from "react";
+import { useEffect, useRef, useTransition, type Ref } from "react";
 import {
-  goToAdjacentQuestion,
   hideAnswer,
   resetAll,
   resetQuestion,
@@ -102,6 +101,8 @@ function QuestionRow({
   results: PublicResults | null;
   run: (fn: () => Promise<void>) => void;
 }) {
+  const resetDialogRef = useRef<HTMLDialogElement>(null);
+
   return (
     <li
       ref={itemRef}
@@ -109,10 +110,22 @@ function QuestionRow({
         isActive ? "border-[var(--accent)]" : "border-black/10 dark:border-white/15"
       }`}
     >
-      <div className="flex items-center justify-between gap-3 px-4 py-3">
-        <div>
+      <div className="flex items-center gap-3 px-4 py-3">
+        {/* 設問番号を丸バッジにして視認性を上げる（旧「設問1」というテキストより
+            大きく目立つ）。種別ラベルはバッジと重複しないよう「選択式」等のみ残す。 */}
+        <span
+          aria-hidden
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+            isActive
+              ? "bg-[var(--accent)] text-white"
+              : "bg-black/5 text-black/60 dark:bg-white/10 dark:text-white/60"
+          }`}
+        >
+          {index + 1}
+        </span>
+        <div className="min-w-0 flex-1">
           <p className="text-xs text-black/40 dark:text-white/40">
-            設問 {index + 1}（{question.kind === "choice" ? "選択式" : "自由記述"}）
+            {question.kind === "choice" ? "選択式" : "自由記述"}
           </p>
           <p className="font-medium">{question.prompt}</p>
         </div>
@@ -148,40 +161,29 @@ function QuestionRow({
             回答済み: {answeredCount}人
           </span>
 
-          <div className="flex flex-wrap gap-2">
-            <ControlButton
-              disabled={pending}
-              onClick={() => run(() => goToAdjacentQuestion(-1))}
-            >
-              ← 前の設問
-            </ControlButton>
-            <ControlButton
-              disabled={pending}
-              onClick={() => run(() => goToAdjacentQuestion(1))}
-            >
-              次の設問 →
-            </ControlButton>
-            <ControlButton
+          <div className="flex flex-wrap items-center gap-2">
+            <ToggleButton
+              checked={phase === "open"}
               disabled={pending}
               onClick={() => run(() => setPhase(phase === "open" ? "closed" : "open"))}
-            >
-              {phase === "open" ? "受付を締め切る" : "受付を再開する"}
-            </ControlButton>
-            <button
-              type="button"
+              onLabel="受付中"
+              offLabel="受付停止"
+            />
+            <ToggleButton
+              checked={revealed}
               disabled={pending}
               onClick={() => run(() => setRevealed(!revealed))}
-              className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {revealed ? "結果を非公開に戻す" : "結果を公開する"}
-            </button>
+              onLabel="結果公開中"
+              offLabel="結果非公開"
+            />
             <button
               type="button"
               disabled={pending}
-              onClick={() => run(() => resetQuestion(question.id))}
-              className="rounded-full border border-red-300 px-4 py-2 text-sm text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
+              aria-label="この設問をリセット"
+              onClick={() => resetDialogRef.current?.showModal()}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-red-300 text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
             >
-              この設問をリセット
+              <TrashIcon />
             </button>
           </div>
 
@@ -194,30 +196,107 @@ function QuestionRow({
               run={run}
             />
           )}
+
+          {/* リセットは破壊的操作（回答・結果公開状態が消える）なので、
+              ネイティブ <dialog> で確認を挟む。showModal() が Esc キー・
+              フォーカストラップ・背景クリックでの扱いも面倒を見てくれる。 */}
+          <dialog
+            ref={resetDialogRef}
+            className="rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
+          >
+            <form method="dialog" className="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-4 p-5">
+              <p className="font-medium">この設問をリセットしますか？</p>
+              <p className="text-sm text-black/50 dark:text-white/50">
+                集まった回答と結果公開の状態が消え、この設問は最初の状態に戻ります。
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="submit"
+                  className="rounded-full border border-black/10 px-4 py-2 text-sm dark:border-white/15"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    // ★ type="submit" のままだと、method="dialog" のネイティブ
+                    // クローズ処理と onClick 内の run()（startTransition）が
+                    // 競合し、ダイアログが閉じないことがあった（実機で確認済み）。
+                    // type="button" にして明示的に close() する。
+                    run(() => resetQuestion(question.id));
+                    resetDialogRef.current?.close();
+                  }}
+                  className="rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  リセットする
+                </button>
+              </div>
+            </form>
+          </dialog>
         </div>
       )}
     </li>
   );
 }
 
-function ControlButton({
+function ToggleButton({
+  checked,
   disabled,
   onClick,
-  children,
+  onLabel,
+  offLabel,
 }: {
+  checked: boolean;
   disabled: boolean;
   onClick: () => void;
-  children: ReactNode;
+  onLabel: string;
+  offLabel: string;
 }) {
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
       disabled={disabled}
       onClick={onClick}
-      className="rounded-full border border-black/10 px-4 py-2 text-sm disabled:opacity-50 dark:border-white/15"
+      className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
+        checked
+          ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+          : "border-black/10 text-black/60 dark:border-white/15 dark:text-white/60"
+      }`}
     >
-      {children}
+      <span
+        aria-hidden
+        className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full ${
+          checked ? "bg-[var(--accent)]" : "bg-black/20 dark:bg-white/20"
+        }`}
+      >
+        <span
+          className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+            checked ? "translate-x-3.5" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+      {checked ? onLabel : offLabel}
     </button>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6m-6.5 0 .6 9.4A1.5 1.5 0 0 0 7.6 17h4.8a1.5 1.5 0 0 0 1.5-1.6L14.5 6M8.5 9.5v4m3-4v4" />
+    </svg>
   );
 }
 
