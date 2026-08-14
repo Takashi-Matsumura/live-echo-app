@@ -9,7 +9,9 @@ import {
   verifyPassword,
 } from "@/lib/auth/admin";
 import { validateLogoFile } from "@/lib/brand/validate";
+import { DEFAULT_TEXT_MAX_LENGTH, validateQuestionDraft } from "@/lib/questions";
 import * as service from "@/lib/session/service";
+import type { ChoiceDraft, QuestionDraft } from "@/lib/types";
 
 export type LoginState = { error?: string };
 
@@ -76,6 +78,78 @@ export async function resetQuestion(questionId: string): Promise<void> {
 export async function resetAll(): Promise<void> {
   await assertAdmin();
   await service.resetAll();
+}
+
+// ── 設問の登録・編集・削除 ───────────────────────────────────
+
+export type QuestionFormState = { error?: string };
+
+/**
+ * components/question-form.tsx が送る FormData を下書き（QuestionDraft）に
+ * 組み立てる。ここでは型を揃えるだけで、内容の妥当性チェックは
+ * lib/questions.ts の validateQuestionDraft() に委ねる。
+ *
+ * 選択肢は choiceId / choiceLabel を同じ順序で繰り返し送ってもらう
+ * （FormData.getAll は DOM 順を保つ）。choiceId が空文字列の行は
+ * 新規に追加された選択肢（フォーム側で id をまだ持たない）とみなす。
+ */
+function parseQuestionFormData(formData: FormData): QuestionDraft {
+  const kind = formData.get("kind") === "text" ? "text" : "choice";
+  const prompt = String(formData.get("prompt") ?? "");
+  const note = String(formData.get("note") ?? "");
+
+  const choiceIds = formData.getAll("choiceId").map((v) => String(v));
+  const choiceLabels = formData.getAll("choiceLabel").map((v) => String(v));
+  const choices: ChoiceDraft[] = choiceLabels.map((label, i) => ({
+    id: choiceIds[i] && choiceIds[i].length > 0 ? choiceIds[i] : null,
+    label,
+  }));
+
+  const placeholder = String(formData.get("placeholder") ?? "");
+  const maxLengthRaw = formData.get("maxLength");
+  const maxLength =
+    typeof maxLengthRaw === "string" && maxLengthRaw.trim().length > 0
+      ? Number(maxLengthRaw)
+      : DEFAULT_TEXT_MAX_LENGTH;
+
+  return { kind, prompt, note, choices, placeholder, maxLength };
+}
+
+export async function createQuestion(
+  _prevState: QuestionFormState,
+  formData: FormData,
+): Promise<QuestionFormState> {
+  await assertAdmin();
+  const validated = validateQuestionDraft(parseQuestionFormData(formData));
+  if (!validated.ok) return { error: validated.error };
+  await service.createQuestion(validated.data);
+  revalidatePath("/admin");
+  return {};
+}
+
+/**
+ * useActionState(updateQuestion.bind(null, questionId), {}) の形で使う
+ * （Next.js 公式ドキュメント「Passing additional arguments」の標準パターン。
+ * bind で束縛した残りの引数が (prevState, formData) になる）。
+ */
+export async function updateQuestion(
+  questionId: string,
+  _prevState: QuestionFormState,
+  formData: FormData,
+): Promise<QuestionFormState> {
+  await assertAdmin();
+  const validated = validateQuestionDraft(parseQuestionFormData(formData));
+  if (!validated.ok) return { error: validated.error };
+  const result = await service.updateQuestion(questionId, validated.data);
+  if (!result.ok) return { error: result.error };
+  revalidatePath("/admin");
+  return {};
+}
+
+export async function deleteQuestion(questionId: string): Promise<void> {
+  await assertAdmin();
+  await service.deleteQuestion(questionId);
+  revalidatePath("/admin");
 }
 
 // ── ブランド設定 ─────────────────────────────────────────────

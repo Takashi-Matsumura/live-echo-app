@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useTransition, type Ref } from "react";
+import { useEffect, useRef, useState, useTransition, type Ref, type RefObject } from "react";
 import {
+  deleteQuestion,
   hideAnswer,
   resetAll,
   resetQuestion,
@@ -10,6 +11,7 @@ import {
   setRevealed,
   unhideAnswer,
 } from "@/app/admin/actions";
+import { QuestionForm } from "@/components/question-form";
 import { ResultBars } from "@/components/result-bars";
 import { useLiveState } from "@/components/live-state-provider";
 import type { Deck, Phase, PublicResults, Question } from "@/lib/types";
@@ -18,6 +20,9 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   const { state } = useLiveState();
   const [pending, startTransition] = useTransition();
   const activeItemRef = useRef<HTMLLIElement>(null);
+  const formDialogRef = useRef<HTMLDialogElement>(null);
+  // null = ダイアログを閉じている。"new" = 新規作成。Question = その設問を編集中。
+  const [editing, setEditing] = useState<Question | "new" | null>(null);
 
   function run(fn: () => Promise<void>) {
     startTransition(async () => {
@@ -32,38 +37,64 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
     activeItemRef.current?.scrollIntoView({ block: "nearest" });
   }, [state.question?.id]);
 
+  function openCreateForm() {
+    setEditing("new");
+    formDialogRef.current?.showModal();
+  }
+  function openEditForm(question: Question) {
+    setEditing(question);
+    formDialogRef.current?.showModal();
+  }
+  function closeForm() {
+    formDialogRef.current?.close();
+    setEditing(null);
+  }
+
   return (
     <div className="flex w-full min-w-0 flex-col gap-8">
-      <section className="flex flex-col gap-2">
+      <section className="flex flex-col gap-3">
         {/* 見出しはタブボタン（「設問一覧」）自体が兼ねるため、ここでは重複させない
             （components/brand-settings.tsx と同じ判断）。
             設問一覧と「出題中の設問の詳細」はかつて別セクションだったが、
             1つのアコーディオンに統合した: 出題中の行だけが自動的に展開して
             操作ボタン・結果を表示し、他の行は要約のみの最小高さで並ぶ。
-            出題中の1行ぶんしか大きくならないので、設問数が増えても
-            「一覧の行＋別セクションの詳細」という二重の高さを持たない。
             それでも十分な設問数・回答数になった場合の保険として、リスト
             自体にも高さ上限つきスクロールを残す（ビューポート相対）。 */}
-        <ul className="flex max-h-[65vh] flex-col gap-2 overflow-y-auto pr-1">
-          {questions.map((q, i) => {
-            const isActive = state.question?.id === q.id;
-            return (
-              <QuestionRow
-                key={q.id}
-                itemRef={isActive ? activeItemRef : undefined}
-                index={i}
-                question={q}
-                isActive={isActive}
-                pending={pending}
-                answeredCount={state.answeredCount}
-                phase={state.phase}
-                revealed={state.revealed}
-                results={state.results}
-                run={run}
-              />
-            );
-          })}
-        </ul>
+        <button
+          type="button"
+          onClick={openCreateForm}
+          className="self-start rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+        >
+          新しい設問を追加
+        </button>
+
+        {questions.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-black/10 px-4 py-8 text-center text-sm text-black/50 dark:border-white/15 dark:text-white/50">
+            設問がまだ登録されていません。「新しい設問を追加」から作成してください。
+          </p>
+        ) : (
+          <ul className="flex max-h-[65vh] flex-col gap-2 overflow-y-auto pr-1">
+            {questions.map((q, i) => {
+              const isActive = state.question?.id === q.id;
+              return (
+                <QuestionRow
+                  key={q.id}
+                  itemRef={isActive ? activeItemRef : undefined}
+                  index={i}
+                  question={q}
+                  isActive={isActive}
+                  pending={pending}
+                  answeredCount={state.answeredCount}
+                  phase={state.phase}
+                  revealed={state.revealed}
+                  results={state.results}
+                  run={run}
+                  onEdit={openEditForm}
+                />
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       <button
@@ -74,6 +105,21 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
       >
         全体をリセット
       </button>
+
+      {/* 作成・編集共用フォーム。1つのダイアログを使い回し、editing の値で
+          中身（QuestionForm）を作り直す。key を切り替えることで、対象が
+          変わるたびに内部 state（選択肢の行など）をまっさらにする。 */}
+      <dialog
+        ref={formDialogRef}
+        onClose={() => setEditing(null)}
+        className="m-auto rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
+      >
+        {editing === "new" ? (
+          <QuestionForm key="new" mode="create" onDone={closeForm} />
+        ) : editing ? (
+          <QuestionForm key={editing.id} mode="edit" question={editing} onDone={closeForm} />
+        ) : null}
+      </dialog>
     </div>
   );
 }
@@ -89,6 +135,7 @@ function QuestionRow({
   revealed,
   results,
   run,
+  onEdit,
 }: {
   itemRef?: Ref<HTMLLIElement>;
   index: number;
@@ -100,8 +147,10 @@ function QuestionRow({
   revealed: boolean;
   results: PublicResults | null;
   run: (fn: () => Promise<void>) => void;
+  onEdit: (question: Question) => void;
 }) {
   const resetDialogRef = useRef<HTMLDialogElement>(null);
+  const deleteDialogRef = useRef<HTMLDialogElement>(null);
 
   return (
     <li
@@ -129,6 +178,28 @@ function QuestionRow({
           </p>
           <p className="font-medium">{question.prompt}</p>
         </div>
+
+        {/* 編集・削除は出題中かどうかに関係なく常設（出題中でない設問の
+            方が編集・削除する機会は多い）。出題中の受付/結果公開の操作は
+            下の展開部分に残す。 */}
+        <button
+          type="button"
+          aria-label="この設問を編集"
+          onClick={() => onEdit(question)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-black/60 dark:border-white/15 dark:text-white/60"
+        >
+          <PencilIcon />
+        </button>
+        <button
+          type="button"
+          aria-label="この設問を削除"
+          disabled={pending}
+          onClick={() => deleteDialogRef.current?.showModal()}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-red-300 text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
+        >
+          <TrashIcon />
+        </button>
+
         {isActive ? (
           // ★出題中の行はボタンではなく非活性の pill にする。以前は出題中でも
           // 同じ selectQuestion 呼び出しが残っていて、押すと
@@ -197,51 +268,86 @@ function QuestionRow({
             />
           )}
 
-          {/* リセットは破壊的操作（回答・結果公開状態が消える）なので、
-              ネイティブ <dialog> で確認を挟む。showModal() が Esc キー・
-              フォーカストラップ・背景クリックでの扱いも面倒を見てくれる。
-              ★ m-auto は必須。dialog:modal の UA スタイルは margin: auto で
-              画面中央に配置するが、Tailwind の preflight が * に margin: 0
-              を当てており、preflight は author の通常優先度なので UA
-              スタイルに（詳細度に関係なく）必ず勝つ。結果、m-auto を
-              明示しないと dialog が左上に張り付く（実機で確認済み）。 */}
-          <dialog
-            ref={resetDialogRef}
-            className="m-auto rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
-          >
-            <form method="dialog" className="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-4 p-5">
-              <p className="font-medium">この設問をリセットしますか？</p>
-              <p className="text-sm text-black/50 dark:text-white/50">
-                集まった回答と結果公開の状態が消え、この設問は最初の状態に戻ります。
-              </p>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="submit"
-                  className="rounded-full border border-black/10 px-4 py-2 text-sm dark:border-white/15"
-                >
-                  キャンセル
-                </button>
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() => {
-                    // ★ type="submit" のままだと、method="dialog" のネイティブ
-                    // クローズ処理と onClick 内の run()（startTransition）が
-                    // 競合し、ダイアログが閉じないことがあった（実機で確認済み）。
-                    // type="button" にして明示的に close() する。
-                    run(() => resetQuestion(question.id));
-                    resetDialogRef.current?.close();
-                  }}
-                  className="rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  リセットする
-                </button>
-              </div>
-            </form>
-          </dialog>
+          <ConfirmDialog
+            dialogRef={resetDialogRef}
+            title="この設問をリセットしますか？"
+            description="集まった回答と結果公開の状態が消え、この設問は最初の状態に戻ります。"
+            confirmLabel="リセットする"
+            pending={pending}
+            onConfirm={() => run(() => resetQuestion(question.id))}
+          />
         </div>
       )}
+
+      <ConfirmDialog
+        dialogRef={deleteDialogRef}
+        title="この設問を削除しますか？"
+        description="回答も含めて完全に削除されます。この操作は取り消せません。"
+        confirmLabel="削除する"
+        pending={pending}
+        onConfirm={() => run(() => deleteQuestion(question.id))}
+      />
     </li>
+  );
+}
+
+/**
+ * 「本当に実行しますか？」の確認ダイアログ。この設問をリセット／削除の
+ * 両方から使う共用部品。ネイティブ <dialog> + showModal() を使う理由と
+ * 実装上の注意点は以下2点（どちらも実機で踏んだ地雷）:
+ * - `m-auto` が無いと画面左上に張り付く。dialog:modal の UA スタイルは
+ *   margin: auto で中央寄せするが、Tailwind の preflight が全要素に
+ *   margin: 0 を当てており、preflight は author の通常優先度なので
+ *   詳細度に関係なく UA スタイルに勝ってしまう。
+ * - 確定ボタンは type="button" にして明示的に close() する。
+ *   type="submit"（method="dialog" の中）のままだと、ネイティブの
+ *   クローズ処理と onConfirm 内の startTransition が競合し、ダイアログが
+ *   閉じないことがあった。
+ */
+function ConfirmDialog({
+  dialogRef,
+  title,
+  description,
+  confirmLabel,
+  pending,
+  onConfirm,
+}: {
+  dialogRef: RefObject<HTMLDialogElement | null>;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  pending: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <dialog
+      ref={dialogRef}
+      className="m-auto rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
+    >
+      <form method="dialog" className="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-4 p-5">
+        <p className="font-medium">{title}</p>
+        <p className="text-sm text-black/50 dark:text-white/50">{description}</p>
+        <div className="flex justify-end gap-2">
+          <button
+            type="submit"
+            className="rounded-full border border-black/10 px-4 py-2 text-sm dark:border-white/15"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              onConfirm();
+              dialogRef.current?.close();
+            }}
+            className="rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </form>
+    </dialog>
   );
 }
 
@@ -301,6 +407,24 @@ function TrashIcon() {
       aria-hidden="true"
     >
       <path d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6m-6.5 0 .6 9.4A1.5 1.5 0 0 0 7.6 17h4.8a1.5 1.5 0 0 0 1.5-1.6L14.5 6M8.5 9.5v4m3-4v4" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M13.4 3.4a1.5 1.5 0 0 1 2.12 0l1.08 1.08a1.5 1.5 0 0 1 0 2.12L7.2 15 3 16l1-4.2 9.4-9.4Z" />
+      <path d="M11.6 5.2 14.8 8.4" />
     </svg>
   );
 }

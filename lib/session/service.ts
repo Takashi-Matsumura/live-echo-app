@@ -6,7 +6,9 @@ import type {
   Phase,
   PersonalState,
   PublicState,
+  Question,
   Role,
+  ValidatedQuestionData,
   VoteResult,
 } from "@/lib/types";
 
@@ -77,6 +79,29 @@ export async function resetQuestion(questionId: string): Promise<void> {
 export async function resetAll(): Promise<void> {
   const stub = await getSessionStub();
   return stub.resetAll();
+}
+
+export async function getQuestions(): Promise<readonly Question[]> {
+  const stub = await getSessionStub();
+  return stub.getQuestions();
+}
+
+export async function createQuestion(data: ValidatedQuestionData): Promise<Question> {
+  const stub = await getSessionStub();
+  return stub.createQuestion(data);
+}
+
+export async function updateQuestion(
+  questionId: string,
+  data: ValidatedQuestionData,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const stub = await getSessionStub();
+  return stub.updateQuestion(questionId, data);
+}
+
+export async function deleteQuestion(questionId: string): Promise<void> {
+  const stub = await getSessionStub();
+  return stub.deleteQuestion(questionId);
 }
 
 export async function getBrandLogo(): Promise<BrandLogo | null> {

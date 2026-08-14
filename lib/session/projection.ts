@@ -1,4 +1,4 @@
-import { deck, getQuestionById, getQuestionIndex } from "@/lib/questions";
+import { getQuestionById, getQuestionIndex } from "@/lib/questions";
 import type {
   PublicResults,
   PublicState,
@@ -13,10 +13,19 @@ import type {
  * UI 側で `if (revealed) render(chart)` としてはいけない — サーバから counts /
  * answers が出た時点で DevTools から読めてしまう。「講師が結果開示を制御する」
  * 要件を満たすには、シリアライズ層でここだけが public/admin を切り分ける。
+ *
+ * questions は DO インスタンスが保持する現在の設問リスト
+ * （lib/session/session-do.ts の this.questions）をそのつど渡す。設問を
+ * 管理画面で編集した直後でも、ここで毎回引き直すので古い内容を
+ * 配信することはない。
  */
-export function toPublicState(state: SessionState, role: Role): PublicState {
+export function toPublicState(
+  state: SessionState,
+  questions: readonly Question[],
+  role: Role,
+): PublicState {
   const question = state.activeQuestionId
-    ? (getQuestionById(state.activeQuestionId) ?? null)
+    ? (getQuestionById(questions, state.activeQuestionId) ?? null)
     : null;
 
   const ballotsForQuestion =
@@ -34,7 +43,7 @@ export function toPublicState(state: SessionState, role: Role): PublicState {
       : null;
 
   const position = question
-    ? { index: getQuestionIndex(question.id), total: deck.questions.length }
+    ? { index: getQuestionIndex(questions, question.id), total: questions.length }
     : null;
 
   return {
