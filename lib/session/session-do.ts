@@ -3,7 +3,6 @@ import { sanitizePersistedState } from "@/lib/session/sanitize";
 import { toPublicState } from "@/lib/session/projection";
 import {
   applyCastVote,
-  applyGoToAdjacentQuestion,
   applyHideAnswer,
   applyResetAll,
   applyResetQuestion,
@@ -254,13 +253,6 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   async selectQuestion(questionId: string): Promise<void> {
     this.state = applySelectQuestion(this.state, questionId);
-    this.broadcastNow(this.state);
-  }
-
-  async goToAdjacentQuestion(dir: -1 | 1): Promise<void> {
-    const next = applyGoToAdjacentQuestion(this.state, dir);
-    if (!next) return;
-    this.state = next;
     this.broadcastNow(this.state);
   }
 

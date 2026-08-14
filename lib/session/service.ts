@@ -49,11 +49,6 @@ export async function selectQuestion(questionId: string): Promise<void> {
   return stub.selectQuestion(questionId);
 }
 
-export async function goToAdjacentQuestion(dir: -1 | 1): Promise<void> {
-  const stub = await getSessionStub();
-  return stub.goToAdjacentQuestion(dir);
-}
-
 export async function setPhase(phase: Phase): Promise<void> {
   const stub = await getSessionStub();
   return stub.setPhase(phase);

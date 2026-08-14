@@ -1,6 +1,5 @@
 import {
   DEFAULT_TEXT_MAX_LENGTH,
-  getAdjacentQuestionId,
   getQuestionById,
   isValidChoiceId,
 } from "@/lib/questions";
@@ -78,15 +77,6 @@ export function applySelectQuestion(current: SessionState, questionId: string): 
     phase: "open",
     revealed: false,
   });
-}
-
-export function applyGoToAdjacentQuestion(
-  current: SessionState,
-  dir: -1 | 1,
-): SessionState | null {
-  const targetId = getAdjacentQuestionId(current.activeQuestionId, dir);
-  if (targetId === null) return null;
-  return applySelectQuestion(current, targetId);
 }
 
 export function applySetPhase(current: SessionState, phase: Phase): SessionState {

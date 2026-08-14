@@ -42,11 +42,6 @@ export async function selectQuestion(questionId: string): Promise<void> {
   await service.selectQuestion(questionId);
 }
 
-export async function goToAdjacentQuestion(dir: -1 | 1): Promise<void> {
-  await assertAdmin();
-  await service.goToAdjacentQuestion(dir);
-}
-
 export async function setPhase(phase: "open" | "closed"): Promise<void> {
   await assertAdmin();
   await service.setPhase(phase);
