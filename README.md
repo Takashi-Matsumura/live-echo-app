@@ -1,8 +1,8 @@
 # live-echo-app
 
-セミナー会場向けのリアルタイムアンケートアプリ。講師が Mac Studio 等のローカルサーバから配信し、参加者はスマホのブラウザから QR コード経由で参加する。選択式・自由記述の設問に投票してもらい、講師が任意のタイミングで結果を公開・グラフ表示する。
+セミナー会場向けのリアルタイムアンケートアプリ。Cloudflare Workers 上で動き、参加者はスマホのブラウザから QR コード経由で参加する。選択式・自由記述の設問に投票してもらい、講師が任意のタイミングで結果を公開・グラフ表示する。
 
-Next.js 16.3 / React 19 / TypeScript / Tailwind CSS v4。外部サービス契約は不要（状態はサーバのメモリ + ローカル JSON のみ）。
+Next.js 16.3 / React 19 / TypeScript / Tailwind CSS v4 / Cloudflare Workers + Durable Objects（`@opennextjs/cloudflare`）。状態は Durable Object のストレージ（SQLite バックエンド）のみに持ち、外部のデータベースやキャッシュサービスは使わない。
 
 ## 開発
 
@@ -19,7 +19,7 @@ npm run dev
 
 - `ADMIN_PASSWORD` — 管理画面のログインパスワード。**本番運用前に必ず変更する**
 - `SESSION_SECRET` — 管理者セッション Cookie の署名鍵
-- `PUBLIC_BASE_URL`（任意）— QR / 投影画面の URL を自動検出した LAN IP から上書きしたいときに設定。Tailscale 経由の実機検証では必須（詳細は下記）
+- `PUBLIC_BASE_URL`（任意）— QR / 投影画面の URL を明示的に上書きしたいときに設定。未設定ならリクエストの Host ヘッダーから自動的に組み立てる
 
 検証（完了を宣言する前に必ず実行する）:
 
@@ -28,104 +28,87 @@ npm run typecheck
 npm run lint
 ```
 
-## Tailscale での実機検証
+**`next dev` の制約**: 状態管理は Durable Object（`lib/session/session-do.ts` の `SessionDO`）に集約されている。DO は現状 `next dev` ではローカルにシミュレートできない（wrangler 側の制約で、同一 Worker 内に定義した DO は別プロセスからは繋がらない）。`next dev` は画面のレイアウト確認程度に留め、状態が絡む動作は次の `npm run preview` で確認する。
 
-会場に行かなくても、開発機（Mac）と手元のスマホを [Tailscale](https://tailscale.com/) の同じ Tailnet に繋げば、VPN 経由でスマホの実ブラウザから動作確認できる。当日の本番運用（トラベルルータ + 有線 LAN）とはネットワーク経路が別なので、あくまで開発中の実機検証用。
+## Cloudflare へのデプロイ
 
-1. Mac とスマホの両方で Tailscale アプリを起動し、同じアカウント（同じ Tailnet）にログインして接続する。
-2. Tailscale の Mac アプリ（メニューバーアイコン → Devices、または `tailscale ip -4`）で、**サーバを動かす Mac 自身**の Tailscale IP（`100.x.x.x` 形式）を確認する。
-3. `.env.local` に控える。**自動検出（`lib/network.ts`）は Tailscale の `utun` インターフェースを意図的に除外している**ため、`PUBLIC_BASE_URL` で明示しないと QR / 投影画面が LAN 側の別 IP や `localhost` を指してしまう。
-
-   ```bash
-   # .env.local
-   PUBLIC_BASE_URL=http://100.x.x.x:3000
-   ```
-
-4. `next dev` で検証する場合、`next.config.ts` の `allowedDevOrigins` に Tailscale の CGNAT レンジ用ワイルドカード `"100.*.*.*"` が含まれていることを確認する（同梱済み）。これが無いと dev アセット（HMR 等）がブロックされる。`next start`（本番ビルド）ならこの制約自体が無い。
-5. `.env.local` / `next.config.ts` を変更したらサーバを再起動する（`Ctrl-C` → `npm run dev`）。
-6. `/admin` にログインし、設問をどれも出題していない **idle 状態**にする（初回は何も選んでいなければ idle）。`/present` を開くと QR コードと URL テキストが Tailscale IP を指して表示される。
-7. スマホのカメラで QR を読み取る。Tailscale 接続中なら、会場外・別ネットワークにいてもそのままアクセスできる。
-
-**注意点**
-
-- Tailscale 経由でも通信は `http://` のまま（Cookie は `secure: false` — アプリの通信自体は WireGuard で暗号化されているので実害はない）。
-- Tailscale IP は基本的に固定だが、デバイスを Tailnet から一度外して入れ直すと変わることがある。QR が読めない場合は Tailscale アプリの Devices 一覧で IP を再確認する。
-- **当日の本番運用はこの経路を使わない。** 参加者にアプリのインストールを求めるのは 50 人規模の運営には不向きなので、本番は次の「当日の運用手順」どおりトラベルルータ + 有線 LAN を使う。
-
-## 当日の運用手順
-
-### 事前準備
-
-1. **トラベルルータを持ち込む。** 会場のゲスト WiFi は「クライアントアイソレーション（端末間通信の禁止）」が有効なことが多く、その場合スマホから Mac Studio に一切到達できない。自前のルータを持ち込み、Mac Studio をその LAN ポートに**有線接続**、参加者は同ルータの SSID へ接続してもらう。
-2. ルータで **DHCP 予約**を入れるか、Mac 側で手動 IP（DHCP プール外）を設定して IP を固定する。
-3. macOS のファイアウォールで `node` の受信を許可しておく（プロジェクタ接続中に許可ダイアログを見逃すと詰む）。
-
-   ```bash
-   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "$(which node)"
-   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp "$(which node)"
-   ```
-
-   「すべての受信接続をブロック」は必ずオフにする。この許可は node バイナリのパス・署名に紐づくので、nvm/Homebrew で Node を切り替えたら再度実行する。
-
-4. `content/questions.ts` に当日の設問を書く。
-
-### 起動
+初回セットアップ（Cloudflare アカウントが必要）:
 
 ```bash
-npm run build
-caffeinate -dims npm start
+npx wrangler login
+npx wrangler secret put ADMIN_PASSWORD
+npx wrangler secret put SESSION_SECRET
 ```
 
-- **本番は必ず `next build && next start`。`next dev` は使わない**（オンデマンドコンパイルで初回アクセスが遅く、本番と挙動も異なる）。
-- `caffeinate -dims` で Mac のスリープ・ディスプレイ休止・ディスクスリープを、サーバプロセスが生きている間だけ抑止する。恒久的に切りたい場合は `sudo pmset -a sleep 0 displaysleep 0 disksleep 0`。
-- ポートは既定で 3000 固定（`next start` は衝突時にハードエラーで落ちるため、QR の URL とズレる事故は起きない）。
+ローカルで実際の Workers ランタイム（Durable Object 込み）を確認する:
 
-### セッション中の禁止事項
+```bash
+npm run preview
+```
 
-- **リビルド禁止。** Server Action の ID はビルド成果物に紐づくため、セッション中に `next build` をやり直すと、開きっぱなしのページから投票が飛ばなくなる（`next start` の再起動だけなら問題ない）。
+`http://localhost:8787` で確認できる。DO のストレージはローカルの `.wrangler/` 配下に永続化されるので、preview を再起動しても状態は残る。
 
-### 開演前チェック
+本番へデプロイ:
 
-1. 別デバイス（Mac 上の `curl localhost` は何も証明しない）から疎通確認:
-   ```bash
-   curl -sS -m3 http://<Mac の LAN IP>:3000/api/state
-   ```
-2. 当日と同じ SSID にスマホを繋ぎ、実際に QR から `/` を開いて投票できることを確認する。
-3. `/present` を投影機に表示し、待機中は QR コードが出ることを確認する。
+```bash
+npm run deploy
+```
 
-### 進行
+初回デプロイ時、Cloudflare アカウントに `workers.dev` サブドメインが未登録だとデプロイが失敗する。その場合は表示される URL（`https://dash.cloudflare.com/<account-id>/workers/onboarding`）でサブドメインを登録してから再実行する。以降は `https://<worker名>.<サブドメイン>.workers.dev` で公開される。カスタムドメインは不要（`workers.dev` は個人・小規模用途を想定した無料のドメインとして提供されている）。
 
-1. `/admin` にログインし、出題する設問を選ぶ。
-2. 参加者の回答を見ながら「受付を締め切る」。
-3. 「結果を公開する」で全参加者・投影画面にグラフ / 回答一覧が出る。自由記述は公開前に目を通し、不適切な回答があれば「伏せる」で参加者・投影から除外できる。
-4. 次の設問へ。「この設問をリセット」「全体をリセット」で回答を消せる。
+`wrangler.jsonc` を変更した場合は `npm run cf-typegen` で `cloudflare-env.d.ts`（バインディングの型定義）を再生成する。
 
-### トラブル時
+### プラン
 
-- 参加者のスマホが繋がらない → まずアイソレーションを疑う。会場 WiFi ではなく持ち込みルータの SSID に繋いでいるか確認。
-- 画面ロック復帰後にグラフが止まって見える → 数秒で自動的に再接続・最新状態に復帰する（`visibilitychange` で即時フェッチ + SSE 再接続）。
-- サーバを落としてしまった → `npm start` で再起動すれば `data/session.json` から状態が復元される。
+Workers には Free と Paid（$5/月〜）があるが、**このアプリでは Paid が実質必須**。理由は下記の実測データを参照。バンドルサイズは Free の 3 MiB 制限に収まっているので、壁になるのは CPU 時間のみ。
+
+## 運用
+
+1. `content/questions.ts` に当日の設問を書き、デプロイする（`npm run deploy`）。
+2. `/admin` にログインし、出題する設問を選ぶ。
+3. 参加者の回答を見ながら「受付を締め切る」。
+4. 「結果を公開する」で全参加者・投影画面にグラフ / 回答一覧が出る。自由記述は公開前に目を通し、不適切な回答があれば「伏せる」で参加者・投影から除外できる。
+5. 次の設問へ。「この設問をリセット」「全体をリセット」で回答を消せる。
+
+`/present` を投影機のブラウザで開くと、待機中は常時 QR コードが表示される。参加者はスマホのカメラで QR を読み取るだけで `/` にアクセスできる（アプリのインストール等は不要）。
+
+**開演前チェック**: `curl https://<デプロイ先の URL>/api/health` で `{"ok":true, ...}` が返ることを確認する。
+
+**リビルドに関する注意**: Server Action の ID はビルド成果物に紐づく。開演中に `npm run deploy` をやり直すと、開きっぱなしのページから投票が飛ばなくなることがある（新しいデプロイのたびにページを再読み込みしてもらう必要がある）。
+
+**トラブル時**: 画面ロック復帰後にグラフが止まって見える場合は、数秒で自動的に再接続・最新状態に復帰する（`visibilitychange` で即時フェッチ + SSE 再接続）。サーバプロセスという概念が無い（Durable Object が状態を持ち続ける）ため、「サーバを落としてしまった」という事故は起きない。
 
 ## アーキテクチャ概要
 
-- **配信**: `app/api/stream/route.ts` の Server-Sent Events（単一プロセス内の購読者 `Set` に broadcast）。
-- **投票・管理操作**: Server Actions（`app/actions.ts`, `app/admin/actions.ts`）。
-- **状態**: `lib/session/runtime.ts` が `globalThis` にシングルトンとして保持し、`data/session.json` にデバウンス永続化。将来 Vercel 等へ載せ替える場合は `lib/store/` の実装（`ports.ts` のインターフェース）を差し替えるだけでよい設計。
+- **状態**: `lib/session/session-do.ts` の Durable Object（`SessionDO`）が `SessionState` をインスタンスフィールドとして保持し、DO 自身のストレージ（SQLite バックエンド）にデバウンス永続化する。
+- **状態変更ロジック**: `lib/session/mutations.ts` に純粋関数として実装（`state -> 次の state` を返すだけで I/O を持たない）。`SessionDO` がこれを呼んで自分のフィールドを更新する。
+- **配信**: 同じ Durable Object の中で SSE 購読者を管理し、状態が変わるたびに `event: state` を push する。
+- **投票・管理操作**: Server Actions（`app/actions.ts`, `app/admin/actions.ts`）から `lib/session/service.ts`（DO への薄い RPC クライアント）経由で `SessionDO` のメソッドを呼ぶ。
 - **結果開示の境界**: `lib/session/projection.ts` の `toPublicState()` の1箇所だけ。UI 側で `revealed` を見て出し分けるのではなく、シリアライズ層で非公開データを落とす。
+- **レート制限**: 投票（`castVote`）・ログイン試行（`checkLoginRate`）ともに `SessionDO` のインスタンスフィールド（`lib/rate-limit.ts` の `checkRateLimit()` を使う固定窓カウンタ）で一元管理する。Workers は複数 isolate に分散するため、Next.js 側のモジュールスコープにカウンタを置くと isolate ごとに別集計になってしまう。すべてのリクエストが最終的に同じ DO を経由することを利用し、DO 側に寄せてある。
+- **認証**: 管理者セッションは HMAC 署名付き Cookie（`lib/auth/admin.ts`）。Cloudflare は HTTPS のみのため Cookie は `secure: true`。ログイン試行のレート制限キーには、クライアントが偽装できない `cf-connecting-ip`（Cloudflare が付与）を最優先で使う。
 
 ### SSR + SSE の仕組み
 
 このアプリの画面更新は「初回表示」と「その後の同期」で経路を分けている。
 
 1. **初回表示（SSR）**: `/`・`/present`・`/admin` はいずれも Server Component で、リクエスト時点の状態をサーバ側でレンダリングして返す。参加者・投影・管理のどの画面を開いても、JS 実行を待たずに「今の設問・今の集計」がそのまま HTML に載って届く。
-2. **以降の同期（SSE）**: 初回表示後、クライアントは `EventSource` で `app/api/stream/route.ts` の `GET /api/stream` に接続する。サーバはこのコネクションを閉じずに保持し続け、状態が変わるたびに `lib/store/in-process-broadcaster.ts` の購読者 `Set` へ `event: state` を書き込んで push する。接続直後には `event: snapshot` で現在の全状態を1回送るため、ポーリングなしで新規参加者も既存参加者も同じ状態に揃う。
+2. **以降の同期（SSE）**: 初回表示後、クライアントは `EventSource` で `app/api/stream/route.ts` の `GET /api/stream` に接続する。この Route Handler は Cookie から role / participantId を解決するだけで、実際のストリーム生成は `SessionDO.openEventStream()` に委譲する。DO はコネクションを閉じずに保持し続け、状態が変わるたびに購読者へ `event: state` を push する。接続直後には `event: snapshot` で現在の全状態を1回送るため、ポーリングなしで新規参加者も既存参加者も同じ状態に揃う。
 3. **書き込みは別経路**: 投票や管理操作（受付締切・結果公開・伏せる、等）は SSE のコネクションを使わず、通常の Server Actions（`app/actions.ts`, `app/admin/actions.ts`）＝ POST リクエストとして送る。SSE は「サーバ → クライアント」の一方向 push 専用で、書き込みには使っていない。
 
-まとめると、初回は SSR で state を埋め込み、以後は SSE で差分を push、書き込みは Server Actions という3経路の組み合わせ。`app/api/stream/route.ts` 冒頭のコメントに書いた通り、Next.js 側の gzip 圧縮・ヘッダ flush タイミングまわりの落とし穴を踏んだ上でこの構成に落ち着いている。
+まとめると、初回は SSR で state を埋め込み、以後は SSE で差分を push、書き込みは Server Actions という3経路の組み合わせ。
+
+### Durable Object を使う理由
+
+Cloudflare Workers は複数の isolate に分散して実行されるため、素朴なモジュールスコープの変数や `globalThis` シングルトンでは、リクエストによって別々の実体を見てしまう（移行作業中に実測で確認した不具合: Server Action 経由の状態更新が別の Route Handler からは古いまま見える、というモジュール分裂が発生した）。
+
+Durable Object は「ID ごとに世界中で単一のインスタンスであることが Cloudflare によって保証される」というプリミティブで、この問題を解決する。このアプリは1回のセミナー = 1セッションなので、固定名から導出した ID の DO を1つだけ使う（`lib/session/stub.ts`）。DO は単一スレッドで実行されるため、`mutations.ts` の「読む → 計算する → 差し替える」の間に `await` を挟まなければ、同時に飛んでくる複数の投票リクエストでも読み書きはアトミックになる（Node.js の単一スレッド性に頼っていた旧来の実装と、成立する理由は同じ）。
+
+状態の永続化も DO 自身のストレージ（SQLite バックエンド、Free プランでも利用可）に任せている。DO がメモリから退避されても、次のリクエストでコンストラクタが `blockConcurrencyWhile()` を使って復元処理を行うため、明示的なファイル I/O や外部データベースは不要。
 
 ### WebSocket との違い
 
-似た用途で候補に挙がる WebSocket と比べると、このアプリの要件には SSE の制約がそのまま利点になる。
+似た用途で候補に挙がる WebSocket と比べると、このアプリの要件には SSE の制約がそのまま利点になる。Cloudflare Workers は WebSocket の Hibernation API（接続を保持したまま DO をメモリから退避できる仕組み）も提供しているが、このアプリが必要とするのは「参加者の投票を集計してサーバから全員に配る」というサーバ発の一方向 push だけなので、SSE で要件を満たせている。
 
 | | SSE（採用） | WebSocket |
 |---|---|---|
@@ -133,17 +116,12 @@ caffeinate -dims npm start
 | プロトコル | 通常の HTTP（`text/event-stream`）。`curl` でも中身を覗ける | `ws://` への Upgrade が必要な別プロトコル |
 | 再接続 | ブラウザの `EventSource` が自動で再試行（`retry:` で間隔も指定可能） | 自前で再接続ロジックを実装する必要がある |
 | クライアント→サーバ送信 | 別チャネル（このアプリでは Server Actions の POST）が必要 | 同じコネクション上で送れる |
-| インフラ要件 | 素の HTTP サーバでそのまま動く（ただし gzip・バッファリングの無効化は要る） | Upgrade ハンドリングに対応したサーバ・プロキシ設定が要る |
 
-このアプリが必要とするのは「参加者の投票を集計してサーバから全員に配る」という**サーバ発の一方向 push**だけで、クライアントからの書き込みは投票・管理操作という別種のリクエストとして扱えば十分だった。そのため双方向の常時コネクションを持つ WebSocket ではなく、素の HTTP で完結し自動再接続も標準搭載の SSE を選んでいる。会場のトラベルルータ越しでも `curl http://<IP>:3000/api/state` で疎通確認できる（「開演前チェック」参照）のも、素の HTTP であることの実利。
+クライアントからの書き込みは投票・管理操作という別種のリクエストとして扱えば十分だったため、双方向の常時コネクションを持つ WebSocket ではなく、素の HTTP で完結し自動再接続も標準搭載の SSE を選んでいる。
 
-## Cloudflare Workers への移行（進行中）
+## Free プラン vs Paid プランの CPU 時間実測
 
-ローカル Mac Studio 運用から Cloudflare Workers + Durable Objects への移行を進めている。会場 LAN 運用の手順（上記「Tailscale での実機検証」「当日の運用手順」）は移行完了後に置き換える予定。
-
-### Free プラン vs Paid プランの CPU 時間実測
-
-`@opennextjs/cloudflare` でビルドし、Durable Object 導入前の状態で `*.workers.dev` にデプロイし、`wrangler tail --format json` で実測した `/`（参加者画面の SSR）への CPU 時間。
+`@opennextjs/cloudflare` でビルドし、`*.workers.dev` にデプロイして `wrangler tail --format json` で実測した `/`（参加者画面の SSR）への CPU 時間。
 
 **Workers Free**（上限 10ms/呼び出し）
 
