@@ -1,5 +1,8 @@
 import { getSessionStub } from "@/lib/session/stub";
 import type {
+  BrandLogo,
+  BrandLogoMeta,
+  BrandLogoMime,
   Phase,
   PersonalState,
   PublicState,
@@ -79,4 +82,24 @@ export async function resetQuestion(questionId: string): Promise<void> {
 export async function resetAll(): Promise<void> {
   const stub = await getSessionStub();
   return stub.resetAll();
+}
+
+export async function getBrandLogo(): Promise<BrandLogo | null> {
+  const stub = await getSessionStub();
+  return stub.getBrandLogo();
+}
+
+export async function getBrandLogoMeta(): Promise<BrandLogoMeta | null> {
+  const stub = await getSessionStub();
+  return stub.getBrandLogoMeta();
+}
+
+export async function setBrandLogo(bytes: Uint8Array, mime: BrandLogoMime): Promise<void> {
+  const stub = await getSessionStub();
+  return stub.setBrandLogo(bytes, mime);
+}
+
+export async function clearBrandLogo(): Promise<void> {
+  const stub = await getSessionStub();
+  return stub.clearBrandLogo();
 }

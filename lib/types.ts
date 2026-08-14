@@ -102,6 +102,23 @@ export type ServerEvent =
 
 export type Role = "participant" | "admin";
 
+// ── ブランド設定（SessionState とは別のストレージキーに保存する） ──────
+// 意図的に SessionState の外に置いている。SessionState は投票のたびに
+// SSE で全接続へブロードキャストされるため（lib/session/session-do.ts の
+// publish()）、画像バイト列をそこに含めてはならない。
+
+export type BrandLogoMime = "image/png" | "image/jpeg" | "image/webp";
+
+export type BrandLogo = {
+  readonly bytes: Uint8Array;
+  readonly mime: BrandLogoMime;
+  /** キャッシュバスティングと ETag に使う */
+  readonly updatedAt: number;
+};
+
+/** バイト列を伴わない軽量版。存在確認・ヘッダー描画・ETag 生成に使う */
+export type BrandLogoMeta = Omit<BrandLogo, "bytes">;
+
 export type VoteResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: "closed" | "stale" | "invalid" | "too-long" | "rate-limited" };

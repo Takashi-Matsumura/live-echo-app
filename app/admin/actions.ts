@@ -1,12 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import {
   assertAdmin,
   clearAdminSession,
   issueAdminSession,
   verifyPassword,
 } from "@/lib/auth/admin";
+import { validateLogoFile } from "@/lib/brand/validate";
 import * as service from "@/lib/session/service";
 
 export type LoginState = { error?: string };
@@ -79,4 +81,42 @@ export async function resetQuestion(questionId: string): Promise<void> {
 export async function resetAll(): Promise<void> {
   await assertAdmin();
   await service.resetAll();
+}
+
+// ── ブランド設定 ─────────────────────────────────────────────
+
+export type BrandLogoState = { error?: string };
+
+/** ロゴが出る全画面を再検証する */
+function revalidateBrandSurfaces(): void {
+  revalidatePath("/admin");
+  revalidatePath("/present");
+  revalidatePath("/");
+}
+
+export async function uploadBrandLogo(
+  _prevState: BrandLogoState,
+  formData: FormData,
+): Promise<BrandLogoState> {
+  await assertAdmin();
+
+  const file = formData.get("logo");
+  if (!(file instanceof File)) {
+    return { error: "ファイルが選択されていません。" };
+  }
+
+  const validated = await validateLogoFile(file);
+  if (!validated.ok) {
+    return { error: validated.error };
+  }
+
+  await service.setBrandLogo(validated.bytes, validated.mime);
+  revalidateBrandSurfaces();
+  return {};
+}
+
+export async function removeBrandLogo(): Promise<void> {
+  await assertAdmin();
+  await service.clearBrandLogo();
+  revalidateBrandSurfaces();
 }
