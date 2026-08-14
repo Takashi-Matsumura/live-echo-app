@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { PersonalState, PublicState, ServerEvent } from "@/lib/types";
+import type { Ballot, PersonalState, PublicState, ServerEvent } from "@/lib/types";
 
 type LiveStateValue = {
   state: PublicState;
@@ -17,7 +17,7 @@ type LiveStateValue = {
   /** SSE 接続が生きているか。false の間は直前の描画を保持しつつ再接続中ピルを出す */
   live: boolean;
   /** 投票 Server Action が成功した直後にクライアント側だけで楽観更新する */
-  markAnswered: (questionId: string, answer: string) => void;
+  markAnswered: (questionId: string, answer: Ballot) => void;
 };
 
 const LiveStateContext = createContext<LiveStateValue | null>(null);
@@ -175,7 +175,7 @@ export function LiveStateProvider({
     };
   }, [connect, applySnapshot, view]);
 
-  const markAnswered = useCallback((questionId: string, answer: string) => {
+  const markAnswered = useCallback((questionId: string, answer: Ballot) => {
     setYou({ questionId, myAnswer: answer });
   }, []);
 

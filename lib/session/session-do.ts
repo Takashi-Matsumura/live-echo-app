@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { isChoiceLike } from "@/lib/questions";
 import { sanitizePersistedQuestions, sanitizePersistedState } from "@/lib/session/sanitize";
 import { toPublicState } from "@/lib/session/projection";
 import {
@@ -259,7 +260,11 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   // ── 参加者操作 ─────────────────────────────────────────────
 
-  async castVote(participantId: string, questionId: string, rawAnswer: string): Promise<VoteResult> {
+  async castVote(
+    participantId: string,
+    questionId: string,
+    rawAnswers: readonly string[],
+  ): Promise<VoteResult> {
     if (!checkRateLimit(this.voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)) {
       return { ok: false, reason: "rate-limited" };
     }
@@ -268,7 +273,7 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
       this.questions,
       participantId,
       questionId,
-      rawAnswer,
+      rawAnswers,
     );
     if (next) {
       this.state = next;
@@ -374,7 +379,7 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
       // と同じ後始末（出題中なら phase を idle・revealed を false に
       // 戻すが、activeQuestionId 自体は維持する＝設問はまだ存在するため）。
       this.state = applyResetQuestion(this.state, questionId);
-    } else if (existing.kind === "choice" && updated.kind === "choice") {
+    } else if (isChoiceLike(existing) && isChoiceLike(updated)) {
       const removedChoiceIds = existing.choices
         .filter((c) => !updated.choices.some((nc) => nc.id === c.id))
         .map((c) => c.id);

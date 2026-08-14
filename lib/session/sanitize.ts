@@ -1,5 +1,5 @@
-import { getQuestionById, isValidChoiceId } from "@/lib/questions";
-import type { Choice, Phase, Question, SessionState } from "@/lib/types";
+import { DEFAULT_TEXT_MAX_LENGTH, getQuestionById, isValidChoiceId } from "@/lib/questions";
+import type { Ballot, Choice, Phase, Question, SessionState } from "@/lib/types";
 
 const VALID_PHASES: readonly Phase[] = ["idle", "open", "closed"];
 
@@ -9,6 +9,24 @@ function isPhase(value: unknown): value is Phase {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 設問の kind に照らして1票ぶんの Ballot を検証する。不正なら null。 */
+function sanitizeBallot(question: Question, raw: unknown): Ballot | null {
+  if (question.kind === "choice") {
+    return typeof raw === "string" && isValidChoiceId(question, raw) ? raw : null;
+  }
+  if (question.kind === "text") {
+    if (typeof raw !== "string") return null;
+    const maxLength = question.maxLength ?? DEFAULT_TEXT_MAX_LENGTH;
+    return raw.length > maxLength ? null : raw;
+  }
+  // multi: 選択肢 id の配列。重複除去し、question.choices の順に正規化する。
+  if (!Array.isArray(raw)) return null;
+  const validIds = new Set(question.choices.map((c) => c.id));
+  const selected = new Set(raw.filter((id): id is string => typeof id === "string" && validIds.has(id)));
+  if (selected.size === 0) return null;
+  return question.choices.map((c) => c.id).filter((id) => selected.has(id));
 }
 
 /**
@@ -35,18 +53,17 @@ export function sanitizePersistedState(
 
   const validQuestionIds = new Set(questions.map((q) => q.id));
 
-  const ballots: Record<string, Record<string, string>> = {};
+  const ballots: Record<string, Record<string, Ballot>> = {};
   for (const [questionId, answersRaw] of Object.entries(raw.ballots)) {
     if (!validQuestionIds.has(questionId) || !isRecord(answersRaw)) continue;
     const question = getQuestionById(questions, questionId);
     if (!question) continue;
 
-    const answers: Record<string, string> = {};
+    const answers: Record<string, Ballot> = {};
     for (const [participantId, answerRaw] of Object.entries(answersRaw)) {
-      if (typeof answerRaw !== "string") continue;
-      if (question.kind === "choice" && !isValidChoiceId(question, answerRaw)) continue;
-      if (question.kind === "text" && answerRaw.length > (question.maxLength ?? 140)) continue;
-      answers[participantId] = answerRaw;
+      const answer = sanitizeBallot(question, answerRaw);
+      if (answer === null) continue;
+      answers[participantId] = answer;
     }
     ballots[questionId] = answers;
   }
@@ -100,23 +117,29 @@ export function sanitizePersistedQuestions(raw: unknown): readonly Question[] | 
   return questions;
 }
 
+function parseChoices(rawChoices: unknown): Choice[] | null {
+  if (!Array.isArray(rawChoices) || rawChoices.length === 0) return null;
+  const choices: Choice[] = [];
+  const seenChoiceIds = new Set<string>();
+  for (const c of rawChoices) {
+    if (!isRecord(c) || typeof c.id !== "string" || typeof c.label !== "string") return null;
+    if (seenChoiceIds.has(c.id)) return null;
+    seenChoiceIds.add(c.id);
+    choices.push({ id: c.id, label: c.label });
+  }
+  return choices;
+}
+
 function parseQuestion(raw: unknown): Question | null {
   if (!isRecord(raw)) return null;
   if (typeof raw.id !== "string" || raw.id.length === 0) return null;
   if (typeof raw.prompt !== "string") return null;
   const note = typeof raw.note === "string" ? raw.note : undefined;
 
-  if (raw.kind === "choice") {
-    if (!Array.isArray(raw.choices) || raw.choices.length === 0) return null;
-    const choices: Choice[] = [];
-    const seenChoiceIds = new Set<string>();
-    for (const c of raw.choices) {
-      if (!isRecord(c) || typeof c.id !== "string" || typeof c.label !== "string") return null;
-      if (seenChoiceIds.has(c.id)) return null;
-      seenChoiceIds.add(c.id);
-      choices.push({ id: c.id, label: c.label });
-    }
-    return { kind: "choice", id: raw.id, prompt: raw.prompt, note, choices };
+  if (raw.kind === "choice" || raw.kind === "multi") {
+    const choices = parseChoices(raw.choices);
+    if (!choices) return null;
+    return { kind: raw.kind, id: raw.id, prompt: raw.prompt, note, choices };
   }
 
   if (raw.kind === "text") {

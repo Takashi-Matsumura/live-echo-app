@@ -93,8 +93,15 @@ export type QuestionFormState = { error?: string };
  * （FormData.getAll は DOM 順を保つ）。choiceId が空文字列の行は
  * 新規に追加された選択肢（フォーム側で id をまだ持たない）とみなす。
  */
+function parseQuestionKind(formData: FormData): QuestionDraft["kind"] {
+  const raw = formData.get("kind");
+  if (raw === "multi") return "multi";
+  if (raw === "text") return "text";
+  return "choice";
+}
+
 function parseQuestionFormData(formData: FormData): QuestionDraft {
-  const kind = formData.get("kind") === "text" ? "text" : "choice";
+  const kind = parseQuestionKind(formData);
   const prompt = String(formData.get("prompt") ?? "");
   const note = String(formData.get("note") ?? "");
 

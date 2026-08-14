@@ -4,6 +4,7 @@ import { useEffect, type CSSProperties, type ReactNode } from "react";
 import { ResultBars } from "@/components/result-bars";
 import { TextAnswerList } from "@/components/text-answer-list";
 import { useLiveState } from "@/components/live-state-provider";
+import { isChoiceLike } from "@/lib/questions";
 
 // /present は投影用なので、システムのカラースキームに関わらず常にダーク
 // 固定にする。globals.css の @media (prefers-color-scheme: dark) には
@@ -65,11 +66,12 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
           </header>
 
           {revealed && results ? (
-            results.kind === "choice" && question.kind === "choice" ? (
+            results.kind === "choice" && isChoiceLike(question) ? (
               <ResultBars
                 question={question}
                 counts={results.counts}
                 closed={phase === "closed"}
+                respondents={results.respondents}
                 scale="large"
               />
             ) : results.kind === "text" ? (

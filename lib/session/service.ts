@@ -40,10 +40,10 @@ export async function openEventStream(
 export async function castVote(
   participantId: string,
   questionId: string,
-  rawAnswer: string,
+  rawAnswers: readonly string[],
 ): Promise<VoteResult> {
   const stub = await getSessionStub();
-  return stub.castVote(participantId, questionId, rawAnswer);
+  return stub.castVote(participantId, questionId, rawAnswers);
 }
 
 export async function selectQuestion(questionId: string): Promise<void> {

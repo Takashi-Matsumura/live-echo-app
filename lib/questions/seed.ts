@@ -1,5 +1,5 @@
 import { deck as rawSeedDeck } from "@/content/questions";
-import { DEFAULT_TEXT_MAX_LENGTH } from "@/lib/questions";
+import { DEFAULT_TEXT_MAX_LENGTH, isChoiceLike } from "@/lib/questions";
 import type { Question } from "@/lib/types";
 
 /**
@@ -24,7 +24,7 @@ export function seedQuestions(): readonly Question[] {
     }
     seenQuestionIds.add(q.id);
 
-    if (q.kind === "choice") {
+    if (isChoiceLike(q)) {
       if (q.choices.length === 0) {
         throw new Error(`content/questions.ts: 設問 "${q.id}" の choices が空です`);
       }

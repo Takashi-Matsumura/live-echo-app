@@ -1,10 +1,12 @@
 "use client";
 
 import { ChoiceVoteForm } from "@/components/choice-vote-form";
+import { MultiVoteForm } from "@/components/multi-vote-form";
 import { TextVoteForm } from "@/components/text-vote-form";
 import { ResultBars } from "@/components/result-bars";
 import { TextAnswerList } from "@/components/text-answer-list";
 import { useLiveState } from "@/components/live-state-provider";
+import { isChoiceLike, selectedChoiceIds } from "@/lib/questions";
 
 export function ParticipantScreen() {
   const { state, you } = useLiveState();
@@ -36,21 +38,24 @@ export function ParticipantScreen() {
       </header>
 
       {revealed && results ? (
-        results.kind === "choice" && question.kind === "choice" ? (
+        results.kind === "choice" && isChoiceLike(question) ? (
           <ResultBars
             question={question}
             counts={results.counts}
             closed={phase === "closed"}
-            yourAnswerId={you.myAnswer}
+            respondents={results.respondents}
+            yourAnswerIds={selectedChoiceIds(you.myAnswer)}
           />
         ) : results.kind === "text" ? (
           <TextAnswerList answers={results.answers} />
         ) : null
       ) : phase === "open" ? (
-        question.kind === "choice" ? (
-          <ChoiceVoteForm key={question.id} question={question} />
-        ) : (
+        question.kind === "text" ? (
           <TextVoteForm key={question.id} question={question} />
+        ) : question.kind === "multi" ? (
+          <MultiVoteForm key={question.id} question={question} />
+        ) : (
+          <ChoiceVoteForm key={question.id} question={question} />
         )
       ) : (
         <p className="text-sm text-black/60 dark:text-white/60">

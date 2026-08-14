@@ -9,7 +9,8 @@ import type { VoteResult } from "@/lib/types";
  * （progressive enhancement: JS 無効でもフォームのネイティブ送信で動く。
  * JS 有効時はクライアント側で preventDefault してこの関数を直接 await し、
  * 結果に応じて楽観更新する）。answer は FormData の "answer" フィールド
- * （選択式は hidden input、自由記述は textarea）から読む。
+ * （選択式は hidden input、自由記述は textarea）から常に配列で読む
+ * （getAll。複数選択式は checkbox で同名フィールドを複数送る）。
  *
  * 投票のレート制限は Durable Object（castVote 内）で行う。同時多発する
  * リクエストがすべて DO の単一インスタンスを経由するため、そこで一元的に
@@ -21,6 +22,6 @@ export async function submitVote(
   formData: FormData,
 ): Promise<VoteResult> {
   const participantId = await getOrCreateParticipantId();
-  const answer = String(formData.get("answer") ?? "");
-  return await castVote(participantId, questionId, answer);
+  const answers = formData.getAll("answer").map((v) => String(v));
+  return await castVote(participantId, questionId, answers);
 }

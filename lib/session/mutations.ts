@@ -3,7 +3,7 @@ import {
   getQuestionById,
   isValidChoiceId,
 } from "@/lib/questions";
-import type { Phase, Question, SessionState, VoteResult } from "@/lib/types";
+import type { Ballot, Phase, Question, SessionState, VoteResult } from "@/lib/types";
 
 /**
  * SessionState の差分適用ヘルパー。rev のインクリメントと updatedAt の更新を
@@ -33,7 +33,7 @@ export function applyCastVote(
   questions: readonly Question[],
   participantId: string,
   questionId: string,
-  rawAnswer: string,
+  rawAnswers: readonly string[],
 ): { next: SessionState | null; result: VoteResult } {
   const question = getQuestionById(questions, questionId);
   if (!question) return { next: null, result: { ok: false, reason: "invalid" } };
@@ -46,13 +46,27 @@ export function applyCastVote(
     return { next: null, result: { ok: false, reason: "closed" } };
   }
 
-  let answer: string;
+  let answer: Ballot;
   if (question.kind === "choice") {
-    if (!isValidChoiceId(question, rawAnswer)) {
+    const rawAnswer = rawAnswers[0];
+    if (rawAnswers.length !== 1 || rawAnswer === undefined || !isValidChoiceId(question, rawAnswer)) {
       return { next: null, result: { ok: false, reason: "invalid" } };
     }
     answer = rawAnswer;
+  } else if (question.kind === "multi") {
+    // 悪意あるクライアントが上限なく送ってくる可能性を潰す:
+    // 選択肢数を超える要素数は無条件で拒否する（切り詰めない）。
+    if (rawAnswers.length === 0 || rawAnswers.length > question.choices.length) {
+      return { next: null, result: { ok: false, reason: "invalid" } };
+    }
+    const selected = new Set(rawAnswers.filter((id) => isValidChoiceId(question, id)));
+    if (selected.size === 0) {
+      return { next: null, result: { ok: false, reason: "invalid" } };
+    }
+    // question.choices の順に正規化する（重複除去・表示順の安定化）。
+    answer = question.choices.map((c) => c.id).filter((id) => selected.has(id));
   } else {
+    const rawAnswer = rawAnswers[0] ?? "";
     const trimmed = rawAnswer.trim();
     if (trimmed.length === 0) return { next: null, result: { ok: false, reason: "invalid" } };
     const maxLength = question.maxLength ?? DEFAULT_TEXT_MAX_LENGTH;
@@ -175,7 +189,17 @@ export function applyChoicesRemoved(
   if (!existing || removedChoiceIds.length === 0) return bumpRev(current);
   const removed = new Set(removedChoiceIds);
   const filtered = Object.fromEntries(
-    Object.entries(existing).filter(([, answer]) => !removed.has(answer)),
+    Object.entries(existing)
+      .map(([participantId, answer]): [string, Ballot | null] => {
+        if (typeof answer !== "string") {
+          // 複数選択: 削除された選択肢だけを抜く。全部消えたらエントリごと除外。
+          const remaining = answer.filter((id) => !removed.has(id));
+          return [participantId, remaining.length > 0 ? remaining : null];
+        }
+        // 単一選択: 削除された選択肢に投票していた票ごと除外。
+        return [participantId, removed.has(answer) ? null : answer];
+      })
+      .filter((entry): entry is [string, Ballot] => entry[1] !== null),
   );
   return commit(current, { ballots: { ...current.ballots, [questionId]: filtered } });
 }
