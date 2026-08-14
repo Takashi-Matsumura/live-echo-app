@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { logout } from "@/app/admin/actions";
 import { AdminConsole } from "@/components/admin-console";
@@ -9,6 +10,10 @@ import { PhonePreview } from "@/components/phone-preview";
 import { requireAdmin } from "@/lib/auth/admin";
 import { deck } from "@/lib/questions";
 import { getBrandLogoMeta, snapshotFor } from "@/lib/session/service";
+
+export const metadata: Metadata = {
+  title: "管理画面",
+};
 
 export default async function AdminPage() {
   await requireAdmin();

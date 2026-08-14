@@ -19,14 +19,7 @@ const DARK_CHART_VARS = {
   "--accent": "#3987e5",
 } as CSSProperties;
 
-export function PresentScreen({
-  qrPanel,
-  brandMark,
-}: {
-  qrPanel: ReactNode;
-  /** 未登録なら BrandMark 自体が null を返す想定なので、呼び出し側の分岐は不要 */
-  brandMark?: ReactNode;
-}) {
+export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
   const { state } = useLiveState();
   const { question, phase, revealed, answeredCount, results, position } = state;
 
@@ -53,21 +46,15 @@ export function PresentScreen({
   return (
     <div
       style={DARK_CHART_VARS}
-      className="relative flex min-h-screen flex-1 flex-col bg-[var(--chart-surface)] text-white [cursor:none]"
+      className="flex min-h-screen flex-1 flex-col bg-[var(--chart-surface)] text-white [cursor:none]"
     >
       {showIdle ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-8 px-8 py-16 text-center">
-          {brandMark}
           <h1 className="text-3xl font-semibold">アンケートに参加する</h1>
           {qrPanel}
         </div>
       ) : (
         <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-10 px-12 py-16">
-          {/* 設問表示中は集計・結果の邪魔をしないよう、左上に小さく低不透明度
-              で out-of-flow に置く（[cursor:none] の没入感を壊さない範囲）。 */}
-          {brandMark && (
-            <div className="absolute left-8 top-8 opacity-50">{brandMark}</div>
-          )}
           <header className="flex flex-col gap-3">
             {position && (
               <p className="text-lg font-medium tracking-wide text-white/50">
