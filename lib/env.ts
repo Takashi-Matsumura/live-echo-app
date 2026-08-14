@@ -1,6 +1,7 @@
 /**
- * 環境変数の fail-fast 検証。instrumentation.ts の起動処理から validateEnv() を
- * 呼び、未設定なら起動直後に例外で落とす（開演直前に気づくより遥かにまし）。
+ * 環境変数の fail-fast 検証。Workers には「起動時に一度だけ」実行される
+ * フックが無いため、validateEnv() は app/api/health/route.ts から呼び、
+ * 開演前チェックとして未設定に気づけるようにしてある。
  */
 
 function readEnv(name: string): string {

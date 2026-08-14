@@ -9,9 +9,6 @@ const UUID_PATTERN = /^[0-9a-f-]{36}$/;
  * 参加者を識別する匿名 Cookie。GET /api/stream で発行するのが本流（参加者は
  * 必ずそこを開くので追加のラウンドトリップがゼロ）。submitVote の先頭でも
  * 同じ関数を呼ぶことで、SSE 接続より先に投票が飛ぶ競合にも耐える。
- *
- * ★ secure: true は絶対に付けない。会場運用は http:// なので、付けると
- * Cookie が一切保存されず全員が毎回別人になる。
  */
 export async function getOrCreateParticipantId(): Promise<string> {
   const store = await cookies();
@@ -25,7 +22,9 @@ export async function getOrCreateParticipantId(): Promise<string> {
     sameSite: "lax",
     path: "/",
     maxAge: MAX_AGE_SECONDS,
-    secure: false,
+    // Cloudflare は HTTPS のみなので true で問題ない
+    // （会場 LAN の http:// 運用は廃止した）。
+    secure: true,
   });
   return id;
 }

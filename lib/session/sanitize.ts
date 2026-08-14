@@ -12,8 +12,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * data/session.json から読んだ生データを検証し、現在の content/questions.ts
- * と突き合わせて安全な SessionState に変換する。
+ * Durable Object のストレージから読んだ生データを検証し、現在の
+ * content/questions.ts と突き合わせて安全な SessionState に変換する。
  *
  * ★ここが無いと、設問ファイルを編集した後に古い state をロードして
  * 壊れる（存在しない questionId が activeQuestionId に残る、削除した

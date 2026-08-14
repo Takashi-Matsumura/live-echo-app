@@ -2,13 +2,11 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "@/lib/env";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { getSessionStub } from "@/lib/session/stub";
 import type { Role } from "@/lib/types";
 
 const COOKIE_NAME = "le_admin";
 const TTL_MS = 12 * 60 * 60 * 1000; // 12時間
-const LOGIN_LIMIT = 10;
-const LOGIN_WINDOW_MS = 60_000;
 
 function sign(payload: string): string {
   return createHmac("sha256", env.SESSION_SECRET).update(payload).digest("base64url");
@@ -21,10 +19,6 @@ function safeEqualStrings(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
-/**
- * ★ secure: true は絶対に付けない。会場運用は http:// なので、付けると
- * Cookie が一切保存されない。
- */
 export async function issueAdminSession(): Promise<void> {
   const exp = String(Date.now() + TTL_MS);
   const store = await cookies();
@@ -33,7 +27,9 @@ export async function issueAdminSession(): Promise<void> {
     sameSite: "lax",
     path: "/",
     maxAge: TTL_MS / 1000,
-    secure: false,
+    // Cloudflare は HTTPS のみなので true で問題ない
+    // （会場 LAN の http:// 運用は廃止した）。
+    secure: true,
   });
 }
 
@@ -91,20 +87,23 @@ export async function assertAdmin(): Promise<void> {
 }
 
 /**
- * ログイン試行のレートリミット用キー。next start を会場 LAN に直接晒す運用では
- * リバースプロキシが無く x-forwarded-for が付かないため、その場合は 'unknown'
- * の共有バケットに縮退する（個別の攻撃元は追跡できないが、総試行回数には
- * 上限がかかる。将来 Vercel 等の背後で動かす場合は自動的に個別追跡になる）。
+ * ログイン試行のレートリミット用キー。Cloudflare が付与する
+ * cf-connecting-ip はクライアントが偽装できない（Cloudflare が上書きする）
+ * ため最優先で使う。x-forwarded-for / x-real-ip はローカル next dev での
+ * フォールバック用に残す。
  */
 async function loginRateLimitKey(): Promise<string> {
   const h = await headers();
+  const cf = h.get("cf-connecting-ip");
+  if (cf) return cf;
   const forwarded = h.get("x-forwarded-for")?.split(",")[0]?.trim();
   return forwarded || h.get("x-real-ip") || "unknown";
 }
 
 export async function verifyPassword(candidate: string): Promise<boolean> {
   const key = await loginRateLimitKey();
-  if (!checkRateLimit(`login:${key}`, LOGIN_LIMIT, LOGIN_WINDOW_MS)) {
+  const stub = await getSessionStub();
+  if (!(await stub.checkLoginRate(key))) {
     return false;
   }
   return safeEqualStrings(candidate, env.ADMIN_PASSWORD);
