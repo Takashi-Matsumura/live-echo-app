@@ -1,11 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import { useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useTransition, type ReactNode } from "react";
 import {
   goToAdjacentQuestion,
   hideAnswer,
-  logout,
   resetAll,
   resetQuestion,
   selectQuestion,
@@ -20,6 +18,7 @@ import type { Deck, PublicResults, Question } from "@/lib/types";
 export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   const { state } = useLiveState();
   const [pending, startTransition] = useTransition();
+  const activeItemRef = useRef<HTMLLIElement>(null);
 
   function run(fn: () => Promise<void>) {
     startTransition(async () => {
@@ -27,40 +26,28 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
     });
   }
 
-  return (
-    <div className="flex w-full min-w-0 max-w-3xl flex-col gap-8">
-      <header className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">管理画面</h1>
-        <div className="flex items-center gap-4">
-          <Link
-            href="/present"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-full border border-black/10 px-4 py-1.5 text-sm dark:border-white/15"
-          >
-            QRコードを表示 ↗
-          </Link>
-          <form action={logout}>
-            <button
-              type="submit"
-              className="text-sm text-black/50 underline dark:text-white/50"
-            >
-              ログアウト
-            </button>
-          </form>
-        </div>
-      </header>
+  // 出題中の設問が切り替わったら、リストがスクロールしていても見える位置まで
+  // 自動でスクロールする（下の <ul> に max-h + overflow-y-auto を付けたため、
+  // 設問数が増えるとリストの途中に隠れうる）。
+  useEffect(() => {
+    activeItemRef.current?.scrollIntoView({ block: "nearest" });
+  }, [state.question?.id]);
 
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-8">
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-black/50 dark:text-white/50">
           設問一覧
         </h2>
-        <ul className="flex flex-col gap-2">
+        {/* 設問数が増えてもページ全体を押し下げないよう、リスト自体を
+            高さ上限つきでスクロールさせる（約4行表示 → 5問目以降はスクロール）。 */}
+        <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto pr-1">
           {questions.map((q, i) => {
             const isActive = state.question?.id === q.id;
             return (
               <li
                 key={q.id}
+                ref={isActive ? activeItemRef : undefined}
                 className="flex items-center justify-between gap-3 rounded-lg border border-black/10 px-4 py-3 dark:border-white/15"
               >
                 <div>
@@ -210,7 +197,9 @@ function AdminResults({
       );
     }
     return (
-      <ul className="flex flex-col gap-2">
+      // 回答は参加者数ぶん増えうる。上の進行ボタン群が常に画面内に留まるよう
+      // ここだけ高さ上限つきでスクロールさせる（admin-console.tsx の設問一覧と同じ考え方）。
+      <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto pr-1">
         {results.answers.map((answer) => (
           <li
             key={answer.id}

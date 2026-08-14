@@ -25,11 +25,8 @@ export function BrandSettings({
   const [state, formAction, pending] = useActionState(uploadBrandLogo, initialState);
 
   return (
+    // 見出しはタブボタン（「ブランド設定」）自体が兼ねるため、ここでは重複させない。
     <section className="flex flex-col gap-3 rounded-2xl border border-black/10 p-5 dark:border-white/15">
-      <h2 className="text-sm font-medium text-black/50 dark:text-white/50">
-        ブランド設定
-      </h2>
-
       <div className="flex items-center gap-4">
         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-dashed border-black/10 dark:border-white/15">
           {hasLogo ? preview : (
