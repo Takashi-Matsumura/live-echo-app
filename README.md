@@ -19,7 +19,7 @@ npm run dev
 
 - `ADMIN_PASSWORD` — 管理画面のログインパスワード。**本番運用前に必ず変更する**
 - `SESSION_SECRET` — 管理者セッション Cookie の署名鍵
-- `PUBLIC_BASE_URL`（任意）— QR / 投影画面の URL を明示的に上書きしたいときに設定。未設定ならリクエストの Host ヘッダーから自動的に組み立てる
+- `PUBLIC_BASE_URL`（任意）— QR / 投影画面の URL を明示的に上書きしたいときに設定。未設定ならリクエストの Host ヘッダーから自動的に組み立てる。**`.env.local` に設定するとビルド時にその値が Cloudflare Worker バンドルへ静的に焼き込まれる**ため、実際の Cloudflare デプロイでは設定しないこと（Host ヘッダーからの自動検出が効かなくなる）。将来カスタムドメイン等で本番から上書きしたい場合は `.env.local` ではなく `wrangler.jsonc` の `vars` か Cloudflare ダッシュボードの環境変数で設定する
 
 検証（完了を宣言する前に必ず実行する）:
 

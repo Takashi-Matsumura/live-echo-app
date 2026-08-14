@@ -28,7 +28,7 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-10">
+    <div className="flex w-full min-w-0 max-w-3xl flex-col gap-8">
       <header className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">管理画面</h1>
         <div className="flex items-center gap-4">
