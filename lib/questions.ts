@@ -15,10 +15,10 @@ const PROMPT_MAX_LENGTH = 200;
 const NOTE_MAX_LENGTH = 200;
 const CHOICE_LABEL_MAX_LENGTH = 60;
 const PLACEHOLDER_MAX_LENGTH = 60;
-/** components/result-bars.tsx の設計コメント「凡例なし・6本以下で
- *  全値に直接ラベル」を崩さない上限。単一選択・複数選択の両方に適用する。 */
+/** components/result-bars.tsx の設計コメント「凡例なし・全値に直接ラベル」
+ *  を崩さない上限。単一選択・複数選択の両方に適用する。 */
 export const MIN_CHOICES = 2;
-export const MAX_CHOICES = 6;
+export const MAX_CHOICES = 8;
 const MIN_TEXT_MAX_LENGTH = 10;
 const MAX_TEXT_MAX_LENGTH = 1000;
 
