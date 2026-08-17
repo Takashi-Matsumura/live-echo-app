@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { isChoiceLike } from "@/lib/questions";
+import { isChoiceLike, MAX_QUESTIONS } from "@/lib/questions";
 import { sanitizePersistedQuestions, sanitizePersistedState } from "@/lib/session/sanitize";
 import { toPublicState } from "@/lib/session/projection";
 import {
@@ -508,6 +508,45 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     await this.persistQuestions();
     this.state = applyQuestionRemoved(this.state, questionId);
     this.broadcastNow(this.state);
+  }
+
+  /**
+   * エクスポートされた設問セットの一括投入（lib/questions/transfer.ts で
+   * 検証済みのデータのみ受け取る）。createQuestion をループで呼ぶと DO
+   * への RPC と storage.put が N 回走るので、1回にまとめる。
+   */
+  async importQuestions(
+    items: readonly ValidatedQuestionData[],
+    mode: "append" | "replace",
+  ): Promise<{ ok: true; imported: number } | { ok: false; error: string }> {
+    // 既存件数を知っているのはこの DO だけなので、上限判定はここで行う。
+    const total = mode === "replace" ? items.length : this.questions.length + items.length;
+    if (total > MAX_QUESTIONS) {
+      return { ok: false, error: `設問は合計${MAX_QUESTIONS}問までです。` };
+    }
+
+    const imported = items.map((data) => ({ ...data, id: crypto.randomUUID() }) as Question);
+    this.questions = mode === "replace" ? imported : [...this.questions, ...imported];
+    await this.persistQuestions();
+
+    if (mode === "replace") {
+      // 既存の設問が全部消える＝出題中の設問も投票も意味を失う。resetAll
+      // と同じ後始末で参加者画面を idle に戻す（applyResetAll は questions
+      // を触らないので、直前に this.questions を差し替えるここでの使用は安全）。
+      this.state = applyResetAll(this.state);
+      this.broadcastNow(this.state);
+    } else {
+      // append は SessionState 自体を変えないので createQuestion に倣って
+      // broadcast しないでもよさそうに見えるが、toPublicState の
+      // position（lib/session/projection.ts）は questions.length から
+      // total を出す。出題中に一括で数問追加すると、配信し直さない限り
+      // 参加者・投影画面の「設問 n / 総数」の総数が古いまま残ってしまう
+      // ため、rev だけ進めて明示的に配信し直す。
+      this.state = bumpRev(this.state);
+      this.broadcastNow(this.state);
+    }
+
+    return { ok: true, imported: imported.length };
   }
 
   // ── ブランド設定（別ストレージキー。SSE 配信には載せない） ─────────

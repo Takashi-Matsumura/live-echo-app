@@ -22,6 +22,11 @@ export const MAX_CHOICES = 8;
 const MIN_TEXT_MAX_LENGTH = 10;
 const MAX_TEXT_MAX_LENGTH = 1000;
 
+/** 1セッションで持てる設問数の上限。エクスポート／インポート（一度に
+ *  大量投入できる）が DO storage の1値あたり128KiB制限に触れる前に
+ *  止めるための安全弁。通常の管理画面からの1問ずつの追加でも守る。 */
+export const MAX_QUESTIONS = 100;
+
 /** 設問タイプの日本語ラベル。Record にしているので、kind を追加したのに
  *  ここへの追加を忘れると型エラーになる（三項演算子の直書きだと防げない）。 */
 export const QUESTION_KIND_LABELS: Record<Question["kind"], string> = {
