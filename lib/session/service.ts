@@ -104,6 +104,14 @@ export async function deleteQuestion(questionId: string): Promise<void> {
   return stub.deleteQuestion(questionId);
 }
 
+export async function importQuestions(
+  items: readonly ValidatedQuestionData[],
+  mode: "append" | "replace",
+): Promise<{ ok: true; imported: number } | { ok: false; error: string }> {
+  const stub = await getSessionStub();
+  return stub.importQuestions(items, mode);
+}
+
 export async function getBrandLogo(): Promise<BrandLogo | null> {
   const stub = await getSessionStub();
   return stub.getBrandLogo();

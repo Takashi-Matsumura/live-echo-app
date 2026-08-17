@@ -6,6 +6,7 @@ import { assertAdmin, attemptAdminLogin, clearAdminSession } from "@/lib/auth/ad
 import { validateLogoFile } from "@/lib/brand/validate";
 import { renderQrSvg } from "@/lib/qr";
 import { DEFAULT_TEXT_MAX_LENGTH, validateQuestionDraft } from "@/lib/questions";
+import { MAX_IMPORT_BYTES, parseQuestionsImport } from "@/lib/questions/transfer";
 import * as service from "@/lib/session/service";
 import type { ChoiceDraft, QuestionDraft } from "@/lib/types";
 
@@ -159,6 +160,42 @@ export async function deleteQuestion(questionId: string): Promise<void> {
   await assertAdmin();
   await service.deleteQuestion(questionId);
   revalidatePath("/admin");
+}
+
+// ── 設問のインポート ─────────────────────────────────────────
+
+export type QuestionImportState = { error?: string; imported?: number };
+
+export async function importQuestions(
+  _prevState: QuestionImportState,
+  formData: FormData,
+): Promise<QuestionImportState> {
+  await assertAdmin();
+
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return { error: "ファイルが選択されていません。" };
+  }
+  if (file.size > MAX_IMPORT_BYTES) {
+    return { error: "ファイルが大きすぎます。" };
+  }
+
+  const mode = formData.get("mode") === "replace" ? "replace" : "append";
+  // クライアント側のチェックボックスだけに頼らず、置き換えの意思を
+  // サーバー側でも確認する（フォームを直接組み立てて送られても安全に）。
+  if (mode === "replace" && formData.get("confirmReplace") !== "1") {
+    return { error: "置き換えの確認が取れませんでした。" };
+  }
+
+  const text = await file.text();
+  const parsed = parseQuestionsImport(text);
+  if (!parsed.ok) return { error: parsed.error };
+
+  const result = await service.importQuestions(parsed.data, mode);
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath("/admin");
+  return { imported: result.imported };
 }
 
 // ── ブランド設定 ─────────────────────────────────────────────

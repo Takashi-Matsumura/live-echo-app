@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, type Ref, type RefObject } from "react";
+import { useEffect, useRef, useState, useTransition, type Ref } from "react";
 import {
   deleteQuestion,
   hideAnswer,
@@ -11,7 +11,9 @@ import {
   setRevealed,
   unhideAnswer,
 } from "@/app/admin/actions";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { QuestionForm } from "@/components/question-form";
+import { QuestionImportForm } from "@/components/question-import-form";
 import { ResultBars } from "@/components/result-bars";
 import { useLiveState } from "@/components/live-state-provider";
 import { isChoiceLike, QUESTION_KIND_LABELS } from "@/lib/questions";
@@ -24,6 +26,11 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   const formDialogRef = useRef<HTMLDialogElement>(null);
   // null = ダイアログを閉じている。"new" = 新規作成。Question = その設問を編集中。
   const [editing, setEditing] = useState<Question | "new" | null>(null);
+  const importDialogRef = useRef<HTMLDialogElement>(null);
+  // インポートフォームは作成/編集フォームと違い編集対象を持たないので、
+  // 開閉は真偽値だけで足りる。閉じたらアンマウントし、file input や
+  // 選択モードの内部 state を毎回まっさらにする。
+  const [importOpen, setImportOpen] = useState(false);
 
   function run(fn: () => Promise<void>) {
     startTransition(async () => {
@@ -50,6 +57,15 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   function closeForm() {
     formDialogRef.current?.close();
     setEditing(null);
+  }
+
+  function openImportForm() {
+    setImportOpen(true);
+    importDialogRef.current?.showModal();
+  }
+  function closeImportForm() {
+    importDialogRef.current?.close();
+    setImportOpen(false);
   }
 
   return (
@@ -100,14 +116,38 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
         )}
       </section>
 
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() => run(resetAll)}
-        className="self-start text-sm text-red-600 underline disabled:opacity-50 dark:text-red-400"
-      >
-        全体をリセット
-      </button>
+      {/* 設問データの入出力＋全体リセット。どれも一覧全体を動かす操作
+          なので、行単位の操作（各設問のリセット・削除）とは別に、
+          パネル最下部にまとめて置く。 */}
+      <div className="flex flex-wrap items-center gap-4">
+        {/* Next の <Link> ではなく素の <a>: クライアント遷移させず、
+            レスポンスの Content-Disposition をブラウザにそのまま
+            解釈させ、ダウンロードとして処理させる。 */}
+        {questions.length > 0 && (
+          <a
+            href="/api/admin/questions/export"
+            download
+            className="text-sm underline"
+          >
+            設問をエクスポート
+          </a>
+        )}
+        <button
+          type="button"
+          onClick={openImportForm}
+          className="text-sm underline"
+        >
+          設問をインポート
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => run(resetAll)}
+          className="text-sm text-red-600 underline disabled:opacity-50 dark:text-red-400"
+        >
+          全体をリセット
+        </button>
+      </div>
 
       {/* 作成・編集共用フォーム。1つのダイアログを使い回し、editing の値で
           中身（QuestionForm）を作り直す。key を切り替えることで、対象が
@@ -122,6 +162,17 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
         ) : editing ? (
           <QuestionForm key={editing.id} mode="edit" question={editing} onDone={closeForm} />
         ) : null}
+      </dialog>
+
+      {/* インポート用ダイアログ。作成/編集用（formDialogRef）とは別に持つ。
+          importOpen が false のときは中身をアンマウントし、file input と
+          選択モードを次に開いたときまっさらに戻す。 */}
+      <dialog
+        ref={importDialogRef}
+        onClose={() => setImportOpen(false)}
+        className="m-auto rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
+      >
+        {importOpen ? <QuestionImportForm onDone={closeImportForm} /> : null}
       </dialog>
     </div>
   );
@@ -291,66 +342,6 @@ function QuestionRow({
         onConfirm={() => run(() => deleteQuestion(question.id))}
       />
     </li>
-  );
-}
-
-/**
- * 「本当に実行しますか？」の確認ダイアログ。この設問をリセット／削除の
- * 両方から使う共用部品。ネイティブ <dialog> + showModal() を使う理由と
- * 実装上の注意点は以下2点（どちらも実機で踏んだ地雷）:
- * - `m-auto` が無いと画面左上に張り付く。dialog:modal の UA スタイルは
- *   margin: auto で中央寄せするが、Tailwind の preflight が全要素に
- *   margin: 0 を当てており、preflight は author の通常優先度なので
- *   詳細度に関係なく UA スタイルに勝ってしまう。
- * - 確定ボタンは type="button" にして明示的に close() する。
- *   type="submit"（method="dialog" の中）のままだと、ネイティブの
- *   クローズ処理と onConfirm 内の startTransition が競合し、ダイアログが
- *   閉じないことがあった。
- */
-function ConfirmDialog({
-  dialogRef,
-  title,
-  description,
-  confirmLabel,
-  pending,
-  onConfirm,
-}: {
-  dialogRef: RefObject<HTMLDialogElement | null>;
-  title: string;
-  description: string;
-  confirmLabel: string;
-  pending: boolean;
-  onConfirm: () => void;
-}) {
-  return (
-    <dialog
-      ref={dialogRef}
-      className="m-auto rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
-    >
-      <form method="dialog" className="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-4 p-5">
-        <p className="font-medium">{title}</p>
-        <p className="text-sm text-black/50 dark:text-white/50">{description}</p>
-        <div className="flex justify-end gap-2">
-          <button
-            type="submit"
-            className="rounded-full border border-black/10 px-4 py-2 text-sm dark:border-white/15"
-          >
-            キャンセル
-          </button>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => {
-              onConfirm();
-              dialogRef.current?.close();
-            }}
-            className="rounded-full bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </form>
-    </dialog>
   );
 }
 
