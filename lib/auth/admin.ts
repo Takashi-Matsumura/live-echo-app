@@ -14,7 +14,12 @@ import { getSessionStub } from "@/lib/session/stub";
 import type { Role } from "@/lib/types";
 
 const COOKIE_NAME = "le_admin";
-const TTL_MS = 12 * 60 * 60 * 1000; // 12時間
+// アイドルタイムアウト: この時間操作が無ければ失効する（sliding）。
+const IDLE_TTL_MS = 2 * 60 * 60 * 1000; // 2時間
+// 絶対TTL: 操作を続けていても、発行から this を超えたら必ず失効する。
+// 盗まれた Cookie がずっと使われ続ける（アイドルのたびに延命される）事態の
+// 歯止め。IDLE_TTL_MS の延長を issueAdminSession() 時刻からここまでで頭打ちにする。
+const ABSOLUTE_TTL_MS = 12 * 60 * 60 * 1000; // 12時間
 const TOTP_ISSUER = "live-echo-app";
 const TOTP_ACCOUNT_LABEL = "admin";
 
@@ -22,18 +27,53 @@ function sign(payload: string): string {
   return createHmac("sha256", env.SESSION_SECRET).update(payload).digest("base64url");
 }
 
-export async function issueAdminSession(): Promise<void> {
-  const exp = String(Date.now() + TTL_MS);
-  const store = await cookies();
-  store.set(COOKIE_NAME, `${exp}.${sign(`admin|${exp}`)}`, {
+/**
+ * le_admin Cookie は `iat.exp.gen.mac` の4パート:
+ * - iat: セッション発行時刻（絶対TTLの起点。リフレッシュしても変わらない）
+ * - exp: 現在の失効時刻（アイドルタイムアウトのたびに前進する。絶対TTLで頭打ち）
+ * - gen: 発行時点の管理者セッション世代番号（lib/session/session-do.ts の
+ *   adminSessionGen）。「全端末ログアウト」は DO 側でこの値を進めるだけで、
+ *   古い gen を持つ Cookie は署名が正しくても以後 isAdmin() が false を返す。
+ * - mac: 上記3つを HMAC で署名した値（改ざん防止）
+ *
+ * 署名検証まではここで完結する（DO 呼び出し不要）。gen の一致確認だけは
+ * DO の現在値が要るため、呼び出し側（isAdmin / refreshAdminSession）で行う。
+ */
+function parseSignedAdminCookie(
+  raw: string,
+): { iat: number; exp: number; gen: number } | null {
+  const parts = raw.split(".");
+  if (parts.length !== 4) return null;
+  const [iatRaw, expRaw, genRaw, mac] = parts;
+  if (!iatRaw || !expRaw || !genRaw || !mac) return null;
+  if (!safeEqualStrings(mac, sign(`admin|${iatRaw}|${expRaw}|${genRaw}`))) return null;
+  const iat = Number(iatRaw);
+  const exp = Number(expRaw);
+  const gen = Number(genRaw);
+  if (!Number.isFinite(iat) || !Number.isFinite(exp) || !Number.isFinite(gen)) return null;
+  return { iat, exp, gen };
+}
+
+function setAdminCookie(iat: number, exp: number, gen: number, store: Awaited<ReturnType<typeof cookies>>): void {
+  const now = Date.now();
+  store.set(COOKIE_NAME, `${iat}.${exp}.${gen}.${sign(`admin|${iat}|${exp}|${gen}`)}`, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
-    maxAge: TTL_MS / 1000,
+    maxAge: Math.max(1, Math.floor((exp - now) / 1000)),
     // Cloudflare は HTTPS のみなので true で問題ない
     // （会場 LAN の http:// 運用は廃止した）。
     secure: true,
   });
+}
+
+export async function issueAdminSession(): Promise<void> {
+  const stub = await getSessionStub();
+  const gen = await stub.getAdminSessionGeneration();
+  const iat = Date.now();
+  const exp = iat + IDLE_TTL_MS; // 発行直後は iat===now なので絶対TTLには当たらない
+  const store = await cookies();
+  setAdminCookie(iat, exp, gen, store);
 }
 
 export async function clearAdminSession(): Promise<void> {
@@ -41,17 +81,53 @@ export async function clearAdminSession(): Promise<void> {
   store.delete(COOKIE_NAME);
 }
 
-/** Server Component からも呼べる（read のみ） */
+/** Server Component からも呼べる（read のみ）。DO への1往復を含む
+ *  （gen の現在値確認のため） — 参加者の Cookie にはこの Cookie 自体が
+ *  無いので、この往復が発生するのは管理者自身のリクエストだけ。 */
 export async function isAdmin(): Promise<boolean> {
   const raw = (await cookies()).get(COOKIE_NAME)?.value;
   if (!raw) return false;
-  const dot = raw.indexOf(".");
-  if (dot === -1) return false;
-  const exp = raw.slice(0, dot);
-  const mac = raw.slice(dot + 1);
-  if (!exp || !mac) return false;
-  if (Number(exp) < Date.now()) return false;
-  return safeEqualStrings(mac, sign(`admin|${exp}`));
+  const parsed = parseSignedAdminCookie(raw);
+  if (!parsed) return false;
+  if (parsed.exp < Date.now()) return false;
+  const stub = await getSessionStub();
+  const currentGen = await stub.getAdminSessionGeneration();
+  return parsed.gen === currentGen;
+}
+
+/**
+ * アイドルタイムアウトの延長。isAdmin() が true を返した後に、Cookie を
+ * 書き換えられる文脈（Server Action / Route Handler。Server Component から
+ * は呼べない — cookies().set() が使えないため）でのみ呼ぶ。
+ *
+ * ここでも signature・exp・gen をすべて再検証してから書き換える（呼び出し側
+ * が isAdmin() の結果を渡さず直接呼んでも安全なように、自己完結させてある）。
+ * 既に失効・revoke 済みの Cookie を誤って延命させることはない。
+ */
+export async function refreshAdminSession(): Promise<void> {
+  const store = await cookies();
+  const raw = store.get(COOKIE_NAME)?.value;
+  if (!raw) return;
+  const parsed = parseSignedAdminCookie(raw);
+  if (!parsed) return;
+  const now = Date.now();
+  if (parsed.exp < now) return;
+  const stub = await getSessionStub();
+  const currentGen = await stub.getAdminSessionGeneration();
+  if (parsed.gen !== currentGen) return;
+  const exp = Math.min(now + IDLE_TTL_MS, parsed.iat + ABSOLUTE_TTL_MS);
+  setAdminCookie(parsed.iat, exp, parsed.gen, store);
+}
+
+/**
+ * 「全端末ログアウト」。DO 側の世代番号を進めて、この端末を含む既発行の
+ * Cookie を全部無効にしたうえで、この端末の Cookie も明示的に消す
+ * （無効な Cookie を残しておく理由が無いため）。
+ */
+export async function revokeAllAdminSessions(): Promise<void> {
+  const stub = await getSessionStub();
+  await stub.revokeAdminSessions();
+  await clearAdminSession();
 }
 
 /** Server Component 用。未認証ならログイン画面へリダイレクト */
@@ -84,9 +160,15 @@ export function resolveRole(request: Request, actuallyAdmin: boolean): Role {
  * Server Action 用。未認証なら throw。
  * Proxy の matcher で保護しても Server Action は別ルート扱いで保護から漏れうる
  * ため、各アクションの先頭で必ずこれを呼ぶ。
+ *
+ * 通過したら（＝この操作は「アイドルではない」証拠なので）
+ * refreshAdminSession() でアイドルタイムアウトを延長する。Server Action
+ * からは Cookie を書き換えられるのでここで行える（Server Component 用の
+ * requireAdmin() は書き換えられないため延長しない）。
  */
 export async function assertAdmin(): Promise<void> {
   if (!(await isAdmin())) throw new Error("Unauthorized");
+  await refreshAdminSession();
 }
 
 /**
@@ -136,6 +218,59 @@ export type LoginAttemptResult =
 
 const GENERIC_TOTP_ERROR = "認証コードが正しくありません。";
 const LOCKED_OUT_ERROR = "試行回数の上限に達しました。しばらくしてから再度お試しください。";
+
+/**
+ * 登録済みTOTPシークレットに対する1回分のコード照合。ログイン（2回目以降）と
+ * 破壊的操作前のステップアップ認証（assertAdminWithTotp）の両方から使う共通処理。
+ * リプレイ防止・失敗カウンタ（DO の recordTotpAttempt）は用途を問わず同じ
+ * ステップ・カウンタを共有する — 「ログインに使ったコードをそのまま
+ * ステップアップにも使い回す」リプレイを構造的に防げるのはこの共有のおかげ。
+ */
+async function verifyRegisteredTotpCode(
+  rawCode: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  let totpSecret: string;
+  try {
+    totpSecret = env.TOTP_SECRET;
+  } catch (err) {
+    console.error("[live-echo] TOTP_SECRET の読み込みに失敗しました", err);
+    return { ok: false, message: "サーバ設定に問題があります。管理者に連絡してください。" };
+  }
+  const key = base32Decode(totpSecret);
+  if (!key) {
+    console.error("[live-echo] TOTP_SECRET が Base32 として不正です");
+    return { ok: false, message: "サーバ設定に問題があります。管理者に連絡してください。" };
+  }
+  const fingerprint = totpSecretFingerprint(totpSecret);
+
+  const stub = await getSessionStub();
+  const gate = await stub.getTotpGate(fingerprint);
+  if (gate.lockedOut) {
+    return { ok: false, message: LOCKED_OUT_ERROR };
+  }
+  if (!gate.registered) {
+    return { ok: false, message: "認証コードを入力してください。" };
+  }
+
+  const code = normalizeTotpCode(rawCode);
+  if (code === null) {
+    return { ok: false, message: "認証コードを入力してください。" };
+  }
+  const verified = verifyTotpCode(key, code, Date.now());
+  if (!verified.ok) {
+    await stub.recordTotpAttempt(fingerprint, { ok: false });
+    return { ok: false, message: GENERIC_TOTP_ERROR };
+  }
+  const { accepted } = await stub.recordTotpAttempt(fingerprint, {
+    ok: true,
+    step: verified.step,
+  });
+  if (!accepted) {
+    // 同じステップのコードが既に使用済み（リプレイ）。
+    return { ok: false, message: GENERIC_TOTP_ERROR };
+  }
+  return { ok: true };
+}
 
 /**
  * パスワード＋TOTPコードの2要素ログインを1箇所で判定する。パスワードが
@@ -214,22 +349,26 @@ export async function attemptAdminLogin(
   }
 
   // 登録済み。
-  if (code === null) {
-    return { kind: "error", message: "認証コードを入力してください。" };
-  }
-  const verified = verifyTotpCode(key, code, Date.now());
+  const verified = await verifyRegisteredTotpCode(code ?? "");
   if (!verified.ok) {
-    await stub.recordTotpAttempt(fingerprint, { ok: false });
-    return { kind: "error", message: GENERIC_TOTP_ERROR };
-  }
-  const { accepted } = await stub.recordTotpAttempt(fingerprint, {
-    ok: true,
-    step: verified.step,
-  });
-  if (!accepted) {
-    // 同じステップのコードが既に使用済み（リプレイ）。
-    return { kind: "error", message: GENERIC_TOTP_ERROR };
+    return { kind: "error", message: verified.message };
   }
   await issueAdminSession();
   return { kind: "ok" };
+}
+
+/**
+ * 破壊的操作（全体リセット・設問の全置き換えインポート等）の直前に要求する
+ * ステップアップ認証。すでにログイン済み（le_admin Cookie が有効）である
+ * ことに加え、その場でもう一度TOTPコードの入力を求める — le_admin Cookie
+ * だけが盗まれた場合でも、被害を「閲覧・小さな操作」程度に抑えるための
+ * 多層防御（詳細は security-review-20260820.md の4番）。
+ */
+export async function assertAdminWithTotp(
+  rawCode: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await assertAdmin();
+  const verified = await verifyRegisteredTotpCode(rawCode);
+  if (!verified.ok) return { ok: false, error: verified.message };
+  return { ok: true };
 }

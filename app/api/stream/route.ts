@@ -1,5 +1,6 @@
-import { isAdmin, resolveRole } from "@/lib/auth/admin";
+import { isAdmin, refreshAdminSession, resolveRole } from "@/lib/auth/admin";
 import { getOrCreateParticipantId } from "@/lib/auth/participant";
+import { SESSION_FULL_ERROR } from "@/lib/session/errors";
 import { openEventStream } from "@/lib/session/service";
 import type { Role } from "@/lib/types";
 
@@ -17,9 +18,24 @@ import type { Role } from "@/lib/types";
  */
 export async function GET(request: Request) {
   const participantId = await getOrCreateParticipantId();
-  const role: Role = resolveRole(request, await isAdmin());
+  const actuallyAdmin = await isAdmin();
+  // SSE 接続は数十分〜数時間おきに張り直される（ネットワーク切替・DO の
+  // 退避など）ので、ここもアイドルタイムアウトの延長ポイントになる。
+  if (actuallyAdmin) await refreshAdminSession();
+  const role: Role = resolveRole(request, actuallyAdmin);
 
-  const stream = await openEventStream(role, participantId);
+  let stream: ReadableStream<Uint8Array>;
+  try {
+    stream = await openEventStream(role, participantId);
+  } catch (err) {
+    // DO 側の接続数上限（session-do.ts の MAX_SUBSCRIBERS）に達した場合。
+    // 大量接続によるこの DO 単体への負荷を頭打ちにするための安全弁で、
+    // 通常運用で踏むことは想定していない。
+    if (err instanceof Error && err.message === SESSION_FULL_ERROR) {
+      return new Response(null, { status: 503, headers: { "Retry-After": "30" } });
+    }
+    throw err;
+  }
 
   return new Response(stream, {
     headers: {

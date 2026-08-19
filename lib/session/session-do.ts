@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { isChoiceLike, MAX_QUESTIONS } from "@/lib/questions";
+import { SESSION_FULL_ERROR } from "@/lib/session/errors";
 import { sanitizePersistedQuestions, sanitizePersistedState } from "@/lib/session/sanitize";
 import { toPublicState } from "@/lib/session/projection";
 import {
@@ -36,6 +37,11 @@ const VOTE_BROADCAST_DEBOUNCE_MS = 100;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const VOTE_LIMIT = 20;
 const VOTE_WINDOW_MS = 60_000;
+// SSE は無認証で開けるため、大量接続によるこの DO 単体への負荷・ストレージ
+// 課金の集中を防ぐ安全弁。通常の会場利用（数百人規模）を十分超える値にして
+// あり、実運用で当たる想定はしていない — Cloudflare 側の Rate Limiting Rule
+// （/api/stream への接続試行の頻度制限）と組み合わせて多層で防御する。
+const MAX_SUBSCRIBERS = 1000;
 const LOGIN_LIMIT = 10;
 const LOGIN_WINDOW_MS = 60_000;
 // TOTP は6桁（100万通り）なのでパスワードよりブルートフォース耐性が低い。
@@ -61,6 +67,12 @@ const QUESTIONS_STORAGE_KEY = "questions";
 // だけを持つ — DO はレート制限などの解決済みロジックだけを担い、認証の
 // 秘密情報そのものは Worker 側（環境変数）に留める既存方針を踏襲する。
 const TOTP_STORAGE_KEY = "totp";
+// 管理者セッションの「世代番号」。lib/auth/admin.ts が発行する le_admin
+// Cookie にこの時点の値を焼き込み、以後の isAdmin() 判定はここに保持する
+// 現在値との一致を都度確認する。盗難時など「全端末ログアウト」操作は
+// この値をインクリメントするだけでよく、それだけで既発行の Cookie が
+// （SESSION_SECRET のローテーション＝再デプロイなしに）即座に全部無効になる。
+const ADMIN_SESSION_GEN_STORAGE_KEY = "adminSessionGen";
 
 const VALID_LOGO_MIMES: readonly BrandLogoMime[] = ["image/png", "image/jpeg", "image/webp"];
 
@@ -139,16 +151,21 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private voteBuckets: RateLimitBuckets = new Map();
   private loginBuckets: RateLimitBuckets = new Map();
+  private adminSessionGen = 0;
 
   constructor(ctx: DurableObjectState, env: CloudflareEnv) {
     super(ctx, env);
     // コンストラクタ完了まで他の呼び出しはキューイングされるため、
     // 各メソッド側で復元完了を個別に待つ必要はない。
     ctx.blockConcurrencyWhile(async () => {
-      const [persistedState, persistedQuestions] = await Promise.all([
+      const [persistedState, persistedQuestions, persistedGen] = await Promise.all([
         ctx.storage.get<unknown>(STATE_STORAGE_KEY),
         ctx.storage.get<unknown>(QUESTIONS_STORAGE_KEY),
+        ctx.storage.get<unknown>(ADMIN_SESSION_GEN_STORAGE_KEY),
       ]);
+      if (typeof persistedGen === "number" && Number.isInteger(persistedGen)) {
+        this.adminSessionGen = persistedGen;
+      }
 
       const sanitizedQuestions = sanitizePersistedQuestions(persistedQuestions ?? null);
       if (sanitizedQuestions) {
@@ -249,6 +266,9 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
    * しないと onopen が発火しない」という制約が、この構成では自然に守られる）。
    */
   async openEventStream(role: Role, participantId: string): Promise<ReadableStream<Uint8Array>> {
+    if (this.subscribers.size >= MAX_SUBSCRIBERS) {
+      throw new Error(SESSION_FULL_ERROR);
+    }
     const initialSnapshot = toPublicState(this.state, this.questions, role);
     const initialYou = this.personalFromState(this.state, participantId);
 
@@ -322,6 +342,19 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   /** ログイン試行のレート制限。lib/auth/admin.ts の verifyPassword から呼ぶ */
   async checkLoginRate(key: string): Promise<boolean> {
     return checkRateLimit(this.loginBuckets, `login:${key}`, LOGIN_LIMIT, LOGIN_WINDOW_MS);
+  }
+
+  // ── 管理者セッションの世代番号（全端末ログアウト） ────────────────
+
+  async getAdminSessionGeneration(): Promise<number> {
+    return this.adminSessionGen;
+  }
+
+  /** 「全端末ログアウト」操作。世代番号を1つ進めて、その値と一致しない
+   *  Cookie（＝それより前に発行された Cookie 全部）を以後すべて無効にする。 */
+  async revokeAdminSessions(): Promise<void> {
+    this.adminSessionGen += 1;
+    await this.ctx.storage.put(ADMIN_SESSION_GEN_STORAGE_KEY, this.adminSessionGen);
   }
 
   // ── TOTP（第2要素認証）─────────────────────────────────────

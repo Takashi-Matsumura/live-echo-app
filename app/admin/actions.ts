@@ -2,7 +2,13 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { assertAdmin, attemptAdminLogin, clearAdminSession } from "@/lib/auth/admin";
+import {
+  assertAdmin,
+  assertAdminWithTotp,
+  attemptAdminLogin,
+  clearAdminSession,
+  revokeAllAdminSessions,
+} from "@/lib/auth/admin";
 import { validateLogoFile } from "@/lib/brand/validate";
 import { renderQrSvg } from "@/lib/qr";
 import { DEFAULT_TEXT_MAX_LENGTH, validateQuestionDraft } from "@/lib/questions";
@@ -35,6 +41,18 @@ export async function login(
 
 export async function logout(): Promise<void> {
   await clearAdminSession();
+  redirect("/admin/login");
+}
+
+/**
+ * 全端末ログアウト。この端末を含め、発行済みの le_admin Cookie を
+ * すべて即座に無効化する（DO 側の世代番号を進める。詳細は
+ * lib/auth/admin.ts の revokeAllAdminSessions）。Cookie の盗難に
+ * 気づいたときの緊急停止ボタン用。
+ */
+export async function revokeAllSessions(): Promise<void> {
+  await assertAdmin();
+  await revokeAllAdminSessions();
   redirect("/admin/login");
 }
 
@@ -78,9 +96,22 @@ export async function resetQuestion(questionId: string): Promise<void> {
   await service.resetQuestion(questionId);
 }
 
-export async function resetAll(): Promise<void> {
-  await assertAdmin();
+export type ResetAllState = { error?: string };
+
+/**
+ * 全体リセットは破壊的操作なので、le_admin Cookie の有効性だけでなく
+ * その場でのTOTP再入力を要求する（ステップアップ認証。詳細は
+ * lib/auth/admin.ts の assertAdminWithTotp）。
+ */
+export async function resetAll(
+  _prevState: ResetAllState,
+  formData: FormData,
+): Promise<ResetAllState> {
+  const code = String(formData.get("code") ?? "");
+  const stepUp = await assertAdminWithTotp(code);
+  if (!stepUp.ok) return { error: stepUp.error };
   await service.resetAll();
+  return {};
 }
 
 // ── 設問の登録・編集・削除 ───────────────────────────────────
@@ -185,6 +216,13 @@ export async function importQuestions(
   // サーバー側でも確認する（フォームを直接組み立てて送られても安全に）。
   if (mode === "replace" && formData.get("confirmReplace") !== "1") {
     return { error: "置き換えの確認が取れませんでした。" };
+  }
+  // 全置き換えは既存の設問と回答を消す破壊的操作なので、resetAll と同じ
+  // ステップアップ認証（TOTP再入力）を要求する。
+  if (mode === "replace") {
+    const code = String(formData.get("totpCode") ?? "");
+    const stepUp = await assertAdminWithTotp(code);
+    if (!stepUp.ok) return { error: stepUp.error };
   }
 
   const text = await file.text();

@@ -7,6 +7,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { BrandSettings } from "@/components/brand-settings";
 import { LiveStateProvider } from "@/components/live-state-provider";
 import { PhonePreview } from "@/components/phone-preview";
+import { RevokeSessionsButton } from "@/components/revoke-sessions-button";
 import { requireAdmin } from "@/lib/auth/admin";
 import { getBrandLogoMeta, getQuestions, snapshotFor } from "@/lib/session/service";
 
@@ -51,6 +52,7 @@ export default async function AdminPage() {
               >
                 QRコードを表示 ↗
               </Link>
+              <RevokeSessionsButton />
               <form action={logout}>
                 <button
                   type="submit"

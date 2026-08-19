@@ -1,4 +1,4 @@
-import { isAdmin } from "@/lib/auth/admin";
+import { isAdmin, refreshAdminSession } from "@/lib/auth/admin";
 import { toExportPayload } from "@/lib/questions/transfer";
 import { getQuestions } from "@/lib/session/service";
 
@@ -17,6 +17,7 @@ export async function GET() {
   if (!(await isAdmin())) {
     return new Response(null, { status: 401 });
   }
+  await refreshAdminSession();
 
   const questions = await getQuestions();
   const now = new Date();
