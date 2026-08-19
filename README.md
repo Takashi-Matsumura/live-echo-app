@@ -68,6 +68,45 @@ npm run deploy
 
 Workers には Free と Paid（$5/月〜）があるが、**このアプリでは Paid が実質必須**。理由は下記の実測データを参照。バンドルサイズは Free の 3 MiB 制限に収まっているので、壁になるのは CPU 時間のみ。
 
+### ダッシュボード側のセキュリティ設定（WAF / Cloudflare Access）
+
+コードでは対応できない、Cloudflare ダッシュボード側での設定。`npm run deploy` とは独立しているためいつでも設定できるが、特に Access は TOTP 初回登録の窓を塞ぐ役割も兼ねるため、**本番公開前に設定しておく**のが望ましい。ゾーンは `pineville.dev` を例にする。
+
+#### WAF レート制限ルール（`/api/stream` への接続フラッド対策）
+
+`/api/stream`（SSE）は無認証で開けるため、大量接続の試行がこの1本の Durable Object に集中する DoS を Cloudflare 側で頭打ちにする。アプリ側の対策（`lib/session/session-do.ts` の `MAX_SUBSCRIBERS`、同時接続数の上限）と二重の防御になる。
+
+1. ダッシュボード → 対象ゾーン → **Security → WAF → Rate limiting rules → Create rule**
+2. Field=`URI Path`, Operator=`次と等しい`, Value=`/api/stream`
+3. 「レートが次の値を超えた場合」: リクエスト数と期間を設定（例: 30リクエスト）
+4. アクション: `ブロック`
+5. 期間（ブロック継続時間）を設定
+
+**Free プランでの制約（実際に踏んだ）**: レート判定の期間・ブロック継続時間の両方とも、選択肢が `10 秒` など短い値に限定されることがある（`1分`が選べない場合がある）。その場合は選べる期間に合わせてリクエスト数を比例調整すればよい（例: 30リクエスト/分の代わりに5リクエスト/10秒）。ブロック継続時間も短い値（10秒など）しか選べないことがあるが、それでも「超過するたびに短時間ブロックされ続ける」ことで持続的な接続フラッドは十分に抑えられる — 単に「一度捕まったら長時間締め出す」という懲罰的効果が弱いだけ。より長いブロックが必要な場合は上位プランへのアップグレードが必要。
+
+また、Free プランのシンプルなルールには「何を基準にカウントするか」（Characteristics）の選択項目が出てこない場合がある。これは選び忘れではなく、**自動的にクライアントIPアドレス単位でカウントされる仕様**（ヘッダーやCookie値など別基準を選べるのは上位プラン向けの機能）。
+
+#### Cloudflare Access（`/admin` `/present` の手前にもう1層認証を置く）
+
+TOTP 未登録の間（初回デプロイ直後・`TOTP_SECRET` ローテーション直後）は、`ADMIN_PASSWORD` さえ知っていれば誰でも自分の端末をTOTPに登録できてしまう窓が開く（上記「初回セットアップ」参照）。Cloudflare Access でログインページ自体への到達をあらかじめ制限しておけば、この窓は構造的に閉じる。合わせて `le_admin` Cookie が万一漏れた場合の追加の防御層にもなる（`lib/auth/admin.ts` のセッション世代番号・ステップアップ認証と多層で防御する）。
+
+1. **[one.dash.cloudflare.com](https://one.dash.cloudflare.com)**（通常のダッシュボードとは別の Zero Trust 専用画面）を開く。初回はチーム名の設定が必要
+2. **Access → Applications → Add an application → Self-hosted**
+3. 「宛先」に、保護したいパスをホスト名ごとに追加する（1アプリにつき最大5つ）:
+   - `pineville.dev` / パス `admin*`
+   - `pineville.dev` / パス `present*`
+   - `<worker名>.<アカウントのサブドメイン>.workers.dev` / パス `admin*`
+   - 同上 / パス `present*`
+
+   `workers.dev` 側のURLは **Workers & Pages → 対象Worker → 「ドメイン」タブ**の「プロダクション」欄で確認できる（`wrangler.jsonc` で `workers_dev: true` にしているため、カスタムドメインと並行してこちらからも `/admin` に到達できてしまう。保護対象から漏らさないこと）。ホスト全体ではなく `admin*` / `present*` のパスだけを指定する — 参加者用の `/` はホスト単位では保護しない（保護すると参加者もアクセスできなくなる）。
+4. **Policies → Add a policy**: Action=`許可`、Include=`Emails` に許可するメールアドレスを追加。保存。
+
+**ハマりどころ（実際に踏んだ）**: ログイン方法として最初は「Cloudflare」（Cloudflareアカウント自体でのOAuthログイン）しか表示されない。これはこのアカウントの管理者向けにCloudflareが自動的に用意する選択肢で、**Policyに登録したメールアドレスが、実際にログインしているCloudflareアカウントの登録メールアドレスと完全一致していないと "That account does not have access." で弾かれる**。GitHub連携用に別のタグ付きメールアドレス（`foo+github@example.com` 等）でCloudflareアカウントを作っている場合は特に注意 — Policyの「含める」ルールに、実際にログインで使うメールアドレスを（複数あれば全部）追加すること。
+
+独立したメール認証チャネルとして「One-time PIN」を使いたい場合は、Zero Trust ダッシュボード → **設定 → 認証** で明示的に有効化する必要がある（デフォルトでは出ないことがある）。「Cloudflare」アカウントでのOAuthログインでも実用上十分な強度はあるため、必須ではない。
+
+設定後は `/admin` `/present` へのアクセスがまず Cloudflare Access のログイン画面（302リダイレクト）を経由し、通過後にアプリ本来のパスワード＋TOTPログイン画面に到達する2段構えになる。`curl -I https://pineville.dev/admin` で `302` が返り、`Location` が `cloudflareaccess.com` を指していれば設定成功。
+
 ## 運用
 
 1. `/admin` にログインし、「設問一覧」タブから当日の設問を登録する（既に登録済みなら内容を確認・修正するだけでよい）。設問の追加・編集・削除は開演中でも行え、デプロイは不要。
