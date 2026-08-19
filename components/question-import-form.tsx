@@ -88,6 +88,20 @@ export function QuestionImportForm({ onDone }: { onDone: () => void }) {
               <input type="checkbox" name="confirmReplace" value="1" required />
               内容を確認しました
             </label>
+            {/* 破壊的操作なのでステップアップ認証（TOTP再入力）を要求する。
+                app/admin/actions.ts の importQuestions 参照。 */}
+            <label className="flex flex-col gap-1 text-sm text-red-600 dark:text-red-400">
+              確認のため認証コード（6桁）を入力してください
+              <input
+                type="text"
+                name="totpCode"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                required
+                className="rounded-lg border border-black/10 bg-white px-4 py-3 tracking-widest text-[var(--foreground)] outline-none focus:border-[var(--accent)] dark:border-white/15 dark:bg-white/5"
+              />
+            </label>
           </div>
         )}
 

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useTransition, type Ref } from "react";
 import {
   deleteQuestion,
   hideAnswer,
-  resetAll,
   resetQuestion,
   selectQuestion,
   setPhase,
@@ -14,6 +13,7 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { QuestionForm } from "@/components/question-form";
 import { QuestionImportForm } from "@/components/question-import-form";
+import { ResetAllDialog } from "@/components/reset-all-dialog";
 import { ResultBars } from "@/components/result-bars";
 import { useLiveState } from "@/components/live-state-provider";
 import { isChoiceLike, QUESTION_KIND_LABELS } from "@/lib/questions";
@@ -31,6 +31,12 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   // 開閉は真偽値だけで足りる。閉じたらアンマウントし、file input や
   // 選択モードの内部 state を毎回まっさらにする。
   const [importOpen, setImportOpen] = useState(false);
+  const resetAllDialogRef = useRef<HTMLDialogElement>(null);
+  // 全体リセットはステップアップ認証（TOTP再入力）が要るため、他の破壊的
+  // 操作と違い ConfirmDialog ではなく専用の ResetAllDialog を使う。
+  // 開閉は真偽値だけで足り、閉じたら内部の入力コード state をまっさらにする
+  // （QuestionImportForm と同じアンマウント方式）。
+  const [resetAllOpen, setResetAllOpen] = useState(false);
 
   function run(fn: () => Promise<void>) {
     startTransition(async () => {
@@ -66,6 +72,15 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   function closeImportForm() {
     importDialogRef.current?.close();
     setImportOpen(false);
+  }
+
+  function openResetAllDialog() {
+    setResetAllOpen(true);
+    resetAllDialogRef.current?.showModal();
+  }
+  function closeResetAllDialog() {
+    resetAllDialogRef.current?.close();
+    setResetAllOpen(false);
   }
 
   return (
@@ -142,7 +157,7 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
         <button
           type="button"
           disabled={pending}
-          onClick={() => run(resetAll)}
+          onClick={openResetAllDialog}
           className="text-sm text-red-600 underline disabled:opacity-50 dark:text-red-400"
         >
           全体をリセット
@@ -173,6 +188,17 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
         className="m-auto rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
       >
         {importOpen ? <QuestionImportForm onDone={closeImportForm} /> : null}
+      </dialog>
+
+      {/* 全体リセット用ダイアログ。作成/編集・インポートと同じく、外側の
+          <dialog> は常設し、開閉のたびに中身だけ着脱して内部 state
+          （入力途中のTOTPコード）をまっさらに戻す。 */}
+      <dialog
+        ref={resetAllDialogRef}
+        onClose={() => setResetAllOpen(false)}
+        className="m-auto rounded-xl border border-black/10 bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/40 dark:border-white/15"
+      >
+        {resetAllOpen ? <ResetAllDialog onDone={closeResetAllDialog} /> : null}
       </dialog>
     </div>
   );
