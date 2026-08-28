@@ -268,6 +268,30 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   }
 
   /**
+   * role: "admin" で開いている SSE 接続の数。「全端末ログアウト」ボタンの
+   * 目安表示専用（app/api/admin/connections/route.ts）。
+   *
+   * ★これは「ログイン中の管理者端末数」ではない — le_admin Cookie は
+   * 署名ベースのステートレス設計（lib/auth/admin.ts）で、DO は発行済み
+   * Cookie の一覧を一切持たない（adminSessionGen は「世代番号」1個だけ
+   * で、台数の情報は無い）。ここで数えられるのは「今この瞬間に SSE を
+   * 開いている画面」だけであり、以下の点で実際の端末数とはズレる:
+   * - /present（投影画面）も requireAdmin() を通って role: "admin" で
+   *   接続するため、操作端末だけでなく投影機の画面も含まれる
+   * - 同じ端末で複数タブを開けば、その数だけ増える
+   * - Cookie が有効なままタブを閉じている端末はカウントに含まれない
+   *   （＝実際に全端末ログアウトされる数より少なく出ることがある）
+   * つまり目安値であり、正確な台数として扱ってはならない。
+   */
+  async getAdminConnectionCount(): Promise<number> {
+    let count = 0;
+    for (const sub of this.subscribers) {
+      if (sub.role === "admin") count += 1;
+    }
+    return count;
+  }
+
+  /**
    * SSE 配信。DO の state はインスタンスフィールドなので同期的に読める
    * （`start()` 内で同期的に最初のスナップショットを enqueue できる —
    * Next.js の Node サーバー実装で必要だった「ヘッダ flush 前に enqueue
