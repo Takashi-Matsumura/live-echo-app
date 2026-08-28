@@ -12,6 +12,7 @@ import {
   applyResetQuestion,
   applySelectQuestion,
   applySetPhase,
+  applySetPresentQuestion,
   applySetRevealed,
   applyUnhideAnswer,
   bumpRev,
@@ -123,6 +124,7 @@ function initialState(): SessionState {
     revealed: false,
     ballots: {},
     hidden: {},
+    presentQuestionId: null,
     updatedAt: Date.now(),
   };
 }
@@ -475,6 +477,14 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   async setRevealed(revealed: boolean): Promise<void> {
     this.state = applySetRevealed(this.state, revealed);
+    this.broadcastNow(this.state);
+  }
+
+  /** /present の固定表示先を切り替える。questionId が現在の設問リストに
+   *  存在しなくても（削除済み等）そのまま受け取る ── projection.ts 側で
+   *  存在しない場合は無視して null 相当に扱うため、ここでの検証は不要。 */
+  async setPresentQuestion(questionId: string | null): Promise<void> {
+    this.state = applySetPresentQuestion(this.state, questionId);
     this.broadcastNow(this.state);
   }
 

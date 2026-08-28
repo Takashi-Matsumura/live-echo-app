@@ -95,6 +95,11 @@ export function applySelectQuestion(
     activeQuestionId: questionId,
     phase: "open",
     revealed: false,
+    // 新しい投票ラウンドを開始する操作なので、/present の固定表示
+    // （presentQuestionId）は自動的に解除し、ライブ追従に戻す。固定した
+    // ままだと「投票を再開したのに投影は古い結果のまま」という食い違いが
+    // 起きるため（この設問を再度出題した場合を含む）。
+    presentQuestionId: null,
   });
 }
 
@@ -104,6 +109,14 @@ export function applySetPhase(current: SessionState, phase: Phase): SessionState
 
 export function applySetRevealed(current: SessionState, revealed: boolean): SessionState {
   return commit(current, { revealed });
+}
+
+/** /present の固定表示先を切り替える。null で解除（ライブ追従に戻す）。 */
+export function applySetPresentQuestion(
+  current: SessionState,
+  questionId: string | null,
+): SessionState {
+  return commit(current, { presentQuestionId: questionId });
 }
 
 export function applyHideAnswer(
@@ -144,6 +157,9 @@ export function applyResetQuestion(current: SessionState, questionId: string): S
     hidden: nextHidden,
     revealed: isActive ? false : current.revealed,
     phase: isActive ? "idle" : current.phase,
+    // 固定表示先の回答を消したなら、空の結果が投影に残らないよう解除する。
+    presentQuestionId:
+      current.presentQuestionId === questionId ? null : current.presentQuestionId,
   });
 }
 
@@ -154,6 +170,7 @@ export function applyResetAll(current: SessionState): SessionState {
     revealed: false,
     ballots: {},
     hidden: {},
+    presentQuestionId: null,
   });
 }
 
@@ -222,5 +239,7 @@ export function applyQuestionRemoved(current: SessionState, questionId: string):
     activeQuestionId: wasActive ? null : current.activeQuestionId,
     phase: wasActive ? "idle" : current.phase,
     revealed: wasActive ? false : current.revealed,
+    presentQuestionId:
+      current.presentQuestionId === questionId ? null : current.presentQuestionId,
   });
 }
