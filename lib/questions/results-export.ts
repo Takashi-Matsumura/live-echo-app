@@ -40,9 +40,17 @@ export function toResultsCsv(questions: readonly Question[], state: SessionState
   return rows.map((row) => row.map(csvField).join(",")).join("\r\n");
 }
 
+// Excel/Google Sheets は先頭がこれらの文字のセルを数式として解釈する。
+// 回答内容（自由記述）は参加者からの未検証入力なので、"=1+1" のような
+// 文字列を送られると、管理者がこの CSV を開いた瞬間に数式として実行
+// されてしまう（CSV Formula Injection）。OWASP 推奨どおり、先頭にシングル
+// クォートを1つ足して文字列として固定する。
+const FORMULA_TRIGGER_CHARS = new Set(["=", "+", "-", "@", "\t", "\r"]);
+
 function csvField(value: string): string {
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
+  const neutralized = FORMULA_TRIGGER_CHARS.has(value.charAt(0)) ? `'${value}` : value;
+  if (/[",\r\n]/.test(neutralized)) {
+    return `"${neutralized.replace(/"/g, '""')}"`;
   }
-  return value;
+  return neutralized;
 }
