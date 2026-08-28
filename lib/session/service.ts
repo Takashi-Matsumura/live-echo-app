@@ -35,6 +35,11 @@ export async function getRawState(): Promise<SessionState> {
   return stub.getRawState();
 }
 
+export async function getAdminConnectionCount(): Promise<number> {
+  const stub = await getSessionStub();
+  return stub.getAdminConnectionCount();
+}
+
 export async function openEventStream(
   role: Role,
   participantId: string,
