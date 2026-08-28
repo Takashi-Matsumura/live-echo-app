@@ -10,17 +10,21 @@ import {
   setRevealed,
   unhideAnswer,
 } from "@/app/admin/actions";
+import { useAdminMode } from "@/components/admin-mode";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { DownloadIcon, PencilIcon, TrashIcon, UploadIcon, WarningIcon } from "@/components/icons";
 import { QuestionForm } from "@/components/question-form";
 import { QuestionImportForm } from "@/components/question-import-form";
 import { ResetAllDialog } from "@/components/reset-all-dialog";
 import { ResultBars } from "@/components/result-bars";
+import { RevokeSessionsButton } from "@/components/revoke-sessions-button";
 import { useLiveState } from "@/components/live-state-provider";
 import { isChoiceLike, QUESTION_KIND_LABELS } from "@/lib/questions";
 import type { Deck, Phase, PublicResults, Question } from "@/lib/types";
 
 export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   const { state } = useLiveState();
+  const { mode } = useAdminMode();
   const [pending, startTransition] = useTransition();
   const activeItemRef = useRef<HTMLLIElement>(null);
   const formDialogRef = useRef<HTMLDialogElement>(null);
@@ -94,17 +98,21 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
             スクロールはこのパネル全体（この「新しい設問を追加」ボタンから
             下）を包む components/admin-tabs.tsx 側の領域が担うため、ここでは
             高さを制限しない。 */}
-        <button
-          type="button"
-          onClick={openCreateForm}
-          className="self-start rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
-        >
-          新しい設問を追加
-        </button>
+        {mode === "setup" && (
+          <button
+            type="button"
+            onClick={openCreateForm}
+            className="self-start rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+          >
+            新しい設問を追加
+          </button>
+        )}
 
         {questions.length === 0 ? (
           <p className="rounded-lg border border-dashed border-black/10 px-4 py-8 text-center text-sm text-black/50 dark:border-white/15 dark:text-white/50">
-            設問がまだ登録されていません。「新しい設問を追加」から作成してください。
+            {mode === "setup"
+              ? "設問がまだ登録されていません。「新しい設問を追加」から作成してください。"
+              : "設問がまだ登録されていません。「準備中」に切り替えて作成してください。"}
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -124,6 +132,7 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
                   results={state.results}
                   run={run}
                   onEdit={openEditForm}
+                  editable={mode === "setup"}
                 />
               );
             })}
@@ -133,45 +142,58 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
 
       {/* 設問データの入出力＋全体リセット。どれも一覧全体を動かす操作
           なので、行単位の操作（各設問のリセット・削除）とは別に、
-          パネル最下部にまとめて置く。 */}
-      <div className="flex flex-wrap items-center gap-4">
-        {/* Next の <Link> ではなく素の <a>: クライアント遷移させず、
-            レスポンスの Content-Disposition をブラウザにそのまま
-            解釈させ、ダウンロードとして処理させる。 */}
-        {questions.length > 0 && (
-          <a
-            href="/api/admin/questions/export"
-            download
-            className="text-sm underline"
-          >
-            設問をエクスポート
-          </a>
-        )}
-        {questions.length > 0 && (
-          <a
-            href="/api/admin/results/export"
-            download
-            className="text-sm underline"
-          >
-            アンケート結果をエクスポート（CSV）
-          </a>
-        )}
-        <button
-          type="button"
-          onClick={openImportForm}
-          className="text-sm underline"
-        >
-          設問をインポート
-        </button>
-        <button
-          type="button"
-          disabled={pending}
-          onClick={openResetAllDialog}
-          className="text-sm text-red-600 underline disabled:opacity-50 dark:text-red-400"
-        >
-          全体をリセット
-        </button>
-      </div>
+          パネル最下部にまとめて置く。
+          ★進行中モードでは結果CSVエクスポート（read-only・全体リセット前の
+          保険）だけを残し、他はすべて隠す。準備中モードでのみ、
+          データ入出力（青系）と危険な操作（赤枠で囲って隔離）を分けて出す。 */}
+      {mode === "live" ? (
+        questions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-4">
+            <ExportLink href="/api/admin/results/export" label="アンケート結果（CSV）" />
+          </div>
+        )
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Next の <Link> ではなく素の <a>: クライアント遷移させず、
+                レスポンスの Content-Disposition をブラウザにそのまま
+                解釈させ、ダウンロードとして処理させる。 */}
+            {questions.length > 0 && (
+              <>
+                <ExportLink href="/api/admin/questions/export" label="設問（JSON）" />
+                <ExportLink href="/api/admin/results/export" label="アンケート結果（CSV）" />
+              </>
+            )}
+            <button
+              type="button"
+              onClick={openImportForm}
+              className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-sm dark:border-white/15"
+            >
+              <UploadIcon />
+              設問をインポート
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-lg border border-red-300 p-4 dark:border-red-900">
+            <p className="flex items-center gap-2 text-xs font-medium text-red-600 dark:text-red-400">
+              <WarningIcon />
+              危険な操作 — 元に戻せません
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={openResetAllDialog}
+                className="inline-flex items-center gap-2 rounded-full border border-red-300 px-4 py-2 text-sm font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
+              >
+                <WarningIcon />
+                全体をリセット
+              </button>
+              <RevokeSessionsButton />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 作成・編集共用フォーム。1つのダイアログを使い回し、editing の値で
           中身（QuestionForm）を作り直す。key を切り替えることで、対象が
@@ -213,6 +235,22 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   );
 }
 
+/** エクスポート用のダウンロードリンク。Next の <Link> ではなく素の <a>:
+ *  クライアント遷移させず、レスポンスの Content-Disposition をブラウザに
+ *  そのまま解釈させ、ダウンロードとして処理させる。 */
+function ExportLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      download
+      className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-2 text-sm dark:border-white/15"
+    >
+      <DownloadIcon />
+      {label}
+    </a>
+  );
+}
+
 function QuestionRow({
   itemRef,
   index,
@@ -225,6 +263,7 @@ function QuestionRow({
   results,
   run,
   onEdit,
+  editable,
 }: {
   itemRef?: Ref<HTMLLIElement>;
   index: number;
@@ -237,6 +276,10 @@ function QuestionRow({
   results: PublicResults | null;
   run: (fn: () => Promise<void>) => void;
   onEdit: (question: Question) => void;
+  /** 準備中モードのときだけ true。編集・削除・この設問のリセットは
+   *  破壊的操作なので、進行中モードでは画面から隠す
+   *  （components/admin-mode.tsx 参照）。 */
+  editable: boolean;
 }) {
   const resetDialogRef = useRef<HTMLDialogElement>(null);
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
@@ -270,24 +313,29 @@ function QuestionRow({
 
         {/* 編集・削除は出題中かどうかに関係なく常設（出題中でない設問の
             方が編集・削除する機会は多い）。出題中の受付/結果公開の操作は
-            下の展開部分に残す。 */}
-        <button
-          type="button"
-          aria-label="この設問を編集"
-          onClick={() => onEdit(question)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-black/60 dark:border-white/15 dark:text-white/60"
-        >
-          <PencilIcon />
-        </button>
-        <button
-          type="button"
-          aria-label="この設問を削除"
-          disabled={pending}
-          onClick={() => deleteDialogRef.current?.showModal()}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-red-300 text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
-        >
-          <TrashIcon />
-        </button>
+            下の展開部分に残す。★準備中モード限定 — 進行中は「この設問を
+            出す」の隣に破壊的な削除ボタンが常設される導線を構造的に消す。 */}
+        {editable && (
+          <>
+            <button
+              type="button"
+              aria-label="この設問を編集"
+              onClick={() => onEdit(question)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-black/60 dark:border-white/15 dark:text-white/60"
+            >
+              <PencilIcon />
+            </button>
+            <button
+              type="button"
+              aria-label="この設問を削除"
+              disabled={pending}
+              onClick={() => deleteDialogRef.current?.showModal()}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-red-300 text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
+            >
+              <TrashIcon />
+            </button>
+          </>
+        )}
 
         {isActive ? (
           // ★出題中の行はボタンではなく非活性の pill にする。以前は出題中でも
@@ -336,15 +384,17 @@ function QuestionRow({
               onLabel="結果公開中"
               offLabel="結果非公開"
             />
-            <button
-              type="button"
-              disabled={pending}
-              aria-label="この設問をリセット"
-              onClick={() => resetDialogRef.current?.showModal()}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-red-300 text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
-            >
-              <TrashIcon />
-            </button>
+            {editable && (
+              <button
+                type="button"
+                disabled={pending}
+                aria-label="この設問をリセット"
+                onClick={() => resetDialogRef.current?.showModal()}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-red-300 text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
+              >
+                <TrashIcon />
+              </button>
+            )}
           </div>
 
           {results && (
@@ -420,41 +470,6 @@ function ToggleButton({
       </span>
       {checked ? onLabel : offLabel}
     </button>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-4 w-4"
-      aria-hidden="true"
-    >
-      <path d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6m-6.5 0 .6 9.4A1.5 1.5 0 0 0 7.6 17h4.8a1.5 1.5 0 0 0 1.5-1.6L14.5 6M8.5 9.5v4m3-4v4" />
-    </svg>
-  );
-}
-
-function PencilIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-4 w-4"
-      aria-hidden="true"
-    >
-      <path d="M13.4 3.4a1.5 1.5 0 0 1 2.12 0l1.08 1.08a1.5 1.5 0 0 1 0 2.12L7.2 15 3 16l1-4.2 9.4-9.4Z" />
-      <path d="M11.6 5.2 14.8 8.4" />
-    </svg>
   );
 }
 
