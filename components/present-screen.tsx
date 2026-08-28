@@ -48,11 +48,12 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
   }, []);
 
   // ★ルートは h-dvh + overflow-hidden で画面ちょうどの高さに固定する
-  // （min-h-screen だとページ自体が伸びてスクロールしうる）。中身は必ず
-  // FitToViewport で包み、選択肢の数や自由記述の件数がどれだけ多くても
-  // スクロールなしで1画面に収まるようにする（components/fit-to-viewport.tsx
-  // 参照。「はみ出す場合だけ自動で縮小する」ので、収まる間は clamp() で
-  // 決まる本来の大きな表示のまま）。
+  // （min-h-screen だとページ自体が伸びてスクロールしうる）。
+  // アイドル画面（QR）と「回答済み」待ち表示は、内容量が変動しないため
+  // 引き続き FitToViewport（components/fit-to-viewport.tsx）で包んで
+  // 中央寄せする。結果表示（choice/text）は選択肢数・回答数によって
+  // 画面全体を縮小する挙動をやめ、下記の各分岐で固定サイズのレイアウトを
+  // 直接組む。
   const rootClassName =
     "flex h-dvh flex-col overflow-hidden bg-[var(--chart-surface)] text-white [cursor:none]";
 
@@ -65,17 +66,21 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
     const { question: pinnedQuestion, results: pinnedResults } = presentOverride;
     return (
       <div style={DARK_CHART_VARS} className={rootClassName}>
-        <FitToViewport>
-          <div className="mx-auto flex w-[92vw] max-w-[1800px] flex-col gap-[3vw] px-[2vw] py-[3vw]">
-            <header className="flex flex-col gap-3">
-              <p className="text-[clamp(1.125rem,1.8vw,1.75rem)] font-medium tracking-wide text-white/50">
-                振り返り表示
-              </p>
-              <h1 className="text-[clamp(2.5rem,4.6vw,5rem)] font-semibold leading-tight">
-                {pinnedQuestion.prompt}
-              </h1>
-            </header>
+        <div className="mx-auto flex h-full w-[92vw] max-w-[1800px] flex-col gap-[2dvh] px-[2vw] py-[2dvh]">
+          <header className="flex shrink-0 flex-col gap-3">
+            <p className="text-[clamp(1rem,1.8dvh,1.5rem)] font-medium tracking-wide text-white/50">
+              振り返り表示
+            </p>
+            <h1 className="line-clamp-2 text-[clamp(1.75rem,3.8dvh,3.5rem)] font-semibold leading-tight">
+              {pinnedQuestion.prompt}
+            </h1>
+          </header>
 
+          <div
+            className={`min-h-0 flex-1 ${
+              pinnedResults.kind === "choice" ? "flex flex-col justify-center" : ""
+            }`}
+          >
             {pinnedResults.kind === "choice" && isChoiceLike(pinnedQuestion) ? (
               <ResultBars
                 question={pinnedQuestion}
@@ -90,7 +95,7 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
               <TextAnswerList answers={pinnedResults.answers} scale="large" />
             ) : null}
           </div>
-        </FitToViewport>
+        </div>
       </div>
     );
   }
@@ -108,12 +113,49 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
             {qrPanel}
           </div>
         </FitToViewport>
-      ) : (
+      ) : revealed && results ? (
         // ★以前は max-w-4xl（896px）に収めていたため、大画面プロジェクタでは
         // 左右に大きな余白が残っていた。表示物を主役にするため、幅は
-        // ビューポート基準（w-[92vw]、上限だけ広めに確保）に、文字・バーの
-        // サイズも clamp() でビューポート幅に応じてスケールする
-        // （result-bars.tsx の "large" scale・qr-panel.tsx と同じ方針）。
+        // ビューポート基準（w-[92vw]、上限だけ広めに確保）にする。
+        //
+        // ★以前はここも FitToViewport で包み、はみ出す分は画面全体を
+        // transform: scale() で縮小して吸収していた。選択肢は最大8つ
+        // （lib/questions.ts の MAX_CHOICES）という制約があるため、
+        // result-bars.tsx / text-answer-list.tsx の "large" scale 側で
+        // 8項目がスクロールなしで収まる固定サイズに決め打ちし、縮小には
+        // 頼らない。自由記述だけは件数の上限が無いので、この固定領域の
+        // 中を TextAnswerList 自身がスクロールする。
+        <div className="mx-auto flex h-full w-[92vw] max-w-[1800px] flex-col gap-[2dvh] px-[2vw] py-[2dvh]">
+          <header className="flex shrink-0 flex-col gap-3">
+            {position && (
+              <p className="text-[clamp(1rem,1.8dvh,1.5rem)] font-medium tracking-wide text-white/50">
+                設問 {position.index + 1} / {position.total}
+              </p>
+            )}
+            <h1 className="line-clamp-2 text-[clamp(1.75rem,3.8dvh,3.5rem)] font-semibold leading-tight">
+              {question.prompt}
+            </h1>
+          </header>
+
+          <div
+            className={`min-h-0 flex-1 ${
+              results.kind === "choice" ? "flex flex-col justify-center" : ""
+            }`}
+          >
+            {results.kind === "choice" && isChoiceLike(question) ? (
+              <ResultBars
+                question={question}
+                counts={results.counts}
+                closed={phase === "closed"}
+                respondents={results.respondents}
+                scale="large"
+              />
+            ) : results.kind === "text" ? (
+              <TextAnswerList answers={results.answers} scale="large" />
+            ) : null}
+          </div>
+        </div>
+      ) : (
         <FitToViewport>
           <div className="mx-auto flex w-[92vw] max-w-[1800px] flex-col gap-[3vw] px-[2vw] py-[3vw]">
             <header className="flex flex-col gap-3">
@@ -127,26 +169,12 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
               </h1>
             </header>
 
-            {revealed && results ? (
-              results.kind === "choice" && isChoiceLike(question) ? (
-                <ResultBars
-                  question={question}
-                  counts={results.counts}
-                  closed={phase === "closed"}
-                  respondents={results.respondents}
-                  scale="large"
-                />
-              ) : results.kind === "text" ? (
-                <TextAnswerList answers={results.answers} scale="large" />
-              ) : null
-            ) : (
-              <div className="flex flex-col items-center gap-4 py-12">
-                <p className="text-[clamp(6rem,14vw,12rem)] font-bold tabular-nums">
-                  {answeredCount}
-                </p>
-                <p className="text-[clamp(1.5rem,2.6vw,2.5rem)] text-white/60">人 回答済み</p>
-              </div>
-            )}
+            <div className="flex flex-col items-center gap-4 py-12">
+              <p className="text-[clamp(6rem,14vw,12rem)] font-bold tabular-nums">
+                {answeredCount}
+              </p>
+              <p className="text-[clamp(1.5rem,2.6vw,2.5rem)] text-white/60">人 回答済み</p>
+            </div>
           </div>
         </FitToViewport>
       )}
