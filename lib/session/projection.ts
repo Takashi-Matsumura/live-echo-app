@@ -56,7 +56,51 @@ export function toPublicState(
     results,
     position,
     presentOverride: buildPresentOverride(state, questions, role),
+    pastQuestions: buildPastQuestions(state, questions),
   };
+}
+
+/**
+ * 参加者の「過去の結果」一覧に出す設問（一度でも公開され、今は出題中
+ * ではないもの）。role を問わず同じ内容を配る ── 設問文は公開時点で
+ * 既に見えていた情報なので機密性は無い。実際の集計値はここには含めず、
+ * GET /api/results?questionId=... で別途取得させる（resultsForQuestion
+ * が revealedQuestionIds を再確認するので、ここでの絞り込みは表示上の
+ * 一覧を作るためだけで、実際のアクセス制御はそちら側にもある）。
+ */
+function buildPastQuestions(
+  state: SessionState,
+  questions: readonly Question[],
+): PublicState["pastQuestions"] {
+  const result: { id: string; prompt: string }[] = [];
+  for (const id of state.revealedQuestionIds) {
+    if (id === state.activeQuestionId) continue;
+    const question = getQuestionById(questions, id);
+    if (question) result.push({ id: question.id, prompt: question.prompt });
+  }
+  return result;
+}
+
+/**
+ * questionId を指定して、公開済みの設問の結果を取り出す
+ * （GET /api/results ルートハンドラ専用）。revealedQuestionIds に無い
+ * questionId には null を返す ── 講師がまだ公開していない集計や、
+ * リセット・削除済みの設問を、URL 直叩きで参加者に取得されないための
+ * サーバー側ゲート（buildPastQuestions が一覧に出すかどうかとは独立に、
+ * ここでも必ず再検証する）。
+ */
+export function resultsForQuestion(
+  state: SessionState,
+  questions: readonly Question[],
+  questionId: string,
+  role: Role,
+): { readonly question: Question; readonly results: PublicResults } | null {
+  if (!state.revealedQuestionIds.includes(questionId)) return null;
+  const question = getQuestionById(questions, questionId);
+  if (!question) return null;
+  const ballots = state.ballots[question.id] ?? {};
+  const hiddenIds = state.hidden[question.id] ?? [];
+  return { question, results: buildResults(question, ballots, hiddenIds, role) };
 }
 
 /**

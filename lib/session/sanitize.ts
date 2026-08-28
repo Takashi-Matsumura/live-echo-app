@@ -85,6 +85,12 @@ export function sanitizePersistedState(
       ? raw.presentQuestionId
       : null;
 
+  const revealedQuestionIds = Array.isArray(raw.revealedQuestionIds)
+    ? raw.revealedQuestionIds.filter(
+        (id): id is string => typeof id === "string" && validQuestionIds.has(id),
+      )
+    : [];
+
   return {
     rev: raw.rev,
     activeQuestionId,
@@ -93,6 +99,7 @@ export function sanitizePersistedState(
     revealed: activeQuestionId ? raw.revealed : false,
     ballots,
     hidden,
+    revealedQuestionIds,
     presentQuestionId,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
   };

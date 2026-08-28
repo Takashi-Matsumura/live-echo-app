@@ -5,6 +5,7 @@ import type {
   BrandLogoMime,
   Phase,
   PersonalState,
+  PublicResults,
   PublicState,
   Question,
   Role,
@@ -28,6 +29,14 @@ export async function snapshotFor(role: Role): Promise<PublicState> {
 export async function personalFor(participantId: string): Promise<PersonalState> {
   const stub = await getSessionStub();
   return stub.personal(participantId);
+}
+
+export async function getResultsFor(
+  questionId: string,
+  role: Role,
+): Promise<{ readonly question: Question; readonly results: PublicResults } | null> {
+  const stub = await getSessionStub();
+  return stub.getResultsFor(questionId, role);
 }
 
 export async function getRawState(): Promise<SessionState> {
