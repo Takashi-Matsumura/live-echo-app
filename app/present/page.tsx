@@ -3,7 +3,7 @@ import { LiveStateProvider } from "@/components/live-state-provider";
 import { PresentScreen } from "@/components/present-screen";
 import { QrPanel } from "@/components/qr-panel";
 import { requireAdmin } from "@/lib/auth/admin";
-import { snapshotFor } from "@/lib/session/service";
+import { getQuestions, snapshotFor } from "@/lib/session/service";
 
 export const metadata: Metadata = {
   title: "投影画面",
@@ -13,7 +13,7 @@ export default async function PresentPage() {
   // プロジェクタに映す画面。参加者と同じ結果開示ゲートを通すが、締切前の
   // 生集計を講師が確認できるよう role は admin 扱いにする（/admin と同様）。
   await requireAdmin();
-  const state = await snapshotFor("admin");
+  const [state, questions] = await Promise.all([snapshotFor("admin"), getQuestions()]);
 
   return (
     <LiveStateProvider
@@ -21,7 +21,7 @@ export default async function PresentPage() {
       initialYou={{ questionId: null, myAnswer: null }}
       view="admin"
     >
-      <PresentScreen qrPanel={<QrPanel />} />
+      <PresentScreen qrPanel={<QrPanel />} questions={questions} />
     </LiveStateProvider>
   );
 }
