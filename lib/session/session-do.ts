@@ -259,6 +259,14 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     return this.personalFromState(this.state, participantId);
   }
 
+  /** 集計済みの PublicState ではなく生の ballots/hidden を返す。管理者の
+   *  結果エクスポート（app/api/admin/results/export/route.ts）専用 —
+   *  revealed ゲート（toPublicState）を経ずに全件を渡してよいのは、
+   *  呼び出し元が isAdmin() で既にガードされているため。 */
+  async getRawState(): Promise<SessionState> {
+    return this.state;
+  }
+
   /**
    * SSE 配信。DO の state はインスタンスフィールドなので同期的に読める
    * （`start()` 内で同期的に最初のスナップショットを enqueue できる —
