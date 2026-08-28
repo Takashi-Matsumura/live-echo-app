@@ -45,17 +45,20 @@ export async function QrPanel() {
   const svg = renderQrSvg(url, logo);
 
   return (
-    <div className="flex flex-col items-center gap-4">
+    <div className="flex flex-col items-center gap-6">
       <div
         // lib/qr.ts の renderQrSvg は（元ネタの uqr/renderSVG 同様）width/height
         // 属性を付けない（viewBox のみ）ため、何も指定しないとブラウザ既定の
         // 小さいサイズで描画される。直接の子の svg 要素にサイズを明示する。
-        className="rounded-2xl bg-white p-4 shadow-[0_8px_32px_rgba(0,0,0,0.35)] [&>svg]:h-64 [&>svg]:w-64"
+        // サイズは clamp() でビューポート幅に応じてスケールする
+        // （投影機の解像度によらず大きく表示するため。result-bars.tsx の
+        // "large" scale と同じ理由）。
+        className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(0,0,0,0.35)] [&>svg]:h-[clamp(16rem,30vw,26rem)] [&>svg]:w-[clamp(16rem,30vw,26rem)]"
         // svg はサーバー側で自前生成した文字列。ロゴの data URI 部分も含め
         // renderQrSvg 内で escapeAttr 済み（lib/qr.ts 参照）
         dangerouslySetInnerHTML={{ __html: svg }}
       />
-      <p className="break-all text-center text-xl font-medium tracking-wide text-white">
+      <p className="break-all text-center text-[clamp(1.25rem,2vw,1.75rem)] font-medium tracking-wide text-white">
         {url}
       </p>
     </div>

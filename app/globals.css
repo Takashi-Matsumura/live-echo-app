@@ -13,6 +13,18 @@
   --chart-track: #e1e0d9;
   --chart-text: #0b0b0b;
   --chart-text-muted: #52514e;
+
+  /* 結果確定後（phase === "closed"）に上位3位のバーへ使う「メダル」色。
+   * dataviz スキルの categorical 六項目チェックの対象外（識別用の可変
+   * カテゴリ色ではなく、意味が固定された少数スケール — status パレットと
+   * 同じ扱い。metallic な「銀」は意図的に低彩度）。CVD分離・通常視野floor・
+   * 背景コントラストは node scripts/validate_palette.js で検証済み
+   * （"#b57c05,#5b6b7c,#9a3712" --mode light --surface "#fcfcfb"）。
+   * 色だけに頼らせないため、順位バッジ（絵文字メダル）を必ず併記する
+   * （components/result-bars.tsx）。 */
+  --chart-bar-rank1: #b57c05;
+  --chart-bar-rank2: #5b6b7c;
+  --chart-bar-rank3: #9a3712;
 }
 
 @theme inline {
@@ -40,6 +52,12 @@
     --chart-track: #2c2c2a;
     --chart-text: #ffffff;
     --chart-text-muted: #c3c2b7;
+
+    /* dark版メダル色。検証済み："#eab308,#9fb0c3,#d9663a" --mode dark
+     * --surface "#1a1a19"。暗い投影画面で映えるよう light版より明るい。 */
+    --chart-bar-rank1: #eab308;
+    --chart-bar-rank2: #9fb0c3;
+    --chart-bar-rank3: #d9663a;
   }
 }
 
