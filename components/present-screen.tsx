@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type CSSProperties, type ReactNode } from "react";
+import { FitToViewport } from "@/components/fit-to-viewport";
 import { ResultBars } from "@/components/result-bars";
 import { TextAnswerList } from "@/components/text-answer-list";
 import { useLiveState } from "@/components/live-state-provider";
@@ -46,6 +47,15 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
     };
   }, []);
 
+  // ★ルートは h-dvh + overflow-hidden で画面ちょうどの高さに固定する
+  // （min-h-screen だとページ自体が伸びてスクロールしうる）。中身は必ず
+  // FitToViewport で包み、選択肢の数や自由記述の件数がどれだけ多くても
+  // スクロールなしで1画面に収まるようにする（components/fit-to-viewport.tsx
+  // 参照。「はみ出す場合だけ自動で縮小する」ので、収まる間は clamp() で
+  // 決まる本来の大きな表示のまま）。
+  const rootClassName =
+    "flex h-dvh flex-col overflow-hidden bg-[var(--chart-surface)] text-white [cursor:none]";
+
   // ★admin が「他の設問の結果を投影で見る」を選んでいる間は、こちらを
   // 進行中の activeQuestionId より優先する（components/admin-console.tsx
   // の投影切替、lib/session/mutations.ts の presentQuestionId 参照）。
@@ -54,34 +64,33 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
   if (presentOverride) {
     const { question: pinnedQuestion, results: pinnedResults } = presentOverride;
     return (
-      <div
-        style={DARK_CHART_VARS}
-        className="flex min-h-screen flex-1 flex-col bg-[var(--chart-surface)] text-white [cursor:none]"
-      >
-        <div className="mx-auto flex w-[92vw] max-w-[1800px] flex-1 flex-col justify-center gap-[3vw] px-[2vw] py-[3vw]">
-          <header className="flex flex-col gap-3">
-            <p className="text-[clamp(1.125rem,1.8vw,1.75rem)] font-medium tracking-wide text-white/50">
-              振り返り表示
-            </p>
-            <h1 className="text-[clamp(2.5rem,4.6vw,5rem)] font-semibold leading-tight">
-              {pinnedQuestion.prompt}
-            </h1>
-          </header>
+      <div style={DARK_CHART_VARS} className={rootClassName}>
+        <FitToViewport>
+          <div className="mx-auto flex w-[92vw] max-w-[1800px] flex-col gap-[3vw] px-[2vw] py-[3vw]">
+            <header className="flex flex-col gap-3">
+              <p className="text-[clamp(1.125rem,1.8vw,1.75rem)] font-medium tracking-wide text-white/50">
+                振り返り表示
+              </p>
+              <h1 className="text-[clamp(2.5rem,4.6vw,5rem)] font-semibold leading-tight">
+                {pinnedQuestion.prompt}
+              </h1>
+            </header>
 
-          {pinnedResults.kind === "choice" && isChoiceLike(pinnedQuestion) ? (
-            <ResultBars
-              question={pinnedQuestion}
-              counts={pinnedResults.counts}
-              // この設問はもう投票を受け付けていない（進行中の設問と一致
-              // しない限り新規回答は入り得ない）ので、常に締切後扱いにする。
-              closed
-              respondents={pinnedResults.respondents}
-              scale="large"
-            />
-          ) : pinnedResults.kind === "text" ? (
-            <TextAnswerList answers={pinnedResults.answers} scale="large" />
-          ) : null}
-        </div>
+            {pinnedResults.kind === "choice" && isChoiceLike(pinnedQuestion) ? (
+              <ResultBars
+                question={pinnedQuestion}
+                counts={pinnedResults.counts}
+                // この設問はもう投票を受け付けていない（進行中の設問と一致
+                // しない限り新規回答は入り得ない）ので、常に締切後扱いにする。
+                closed
+                respondents={pinnedResults.respondents}
+                scale="large"
+              />
+            ) : pinnedResults.kind === "text" ? (
+              <TextAnswerList answers={pinnedResults.answers} scale="large" />
+            ) : null}
+          </div>
+        </FitToViewport>
       </div>
     );
   }
@@ -89,56 +98,57 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
   const showIdle = !question || phase === "idle";
 
   return (
-    <div
-      style={DARK_CHART_VARS}
-      className="flex min-h-screen flex-1 flex-col bg-[var(--chart-surface)] text-white [cursor:none]"
-    >
+    <div style={DARK_CHART_VARS} className={rootClassName}>
       {showIdle ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-10 px-8 py-12 text-center">
-          <h1 className="text-[clamp(2rem,4.5vw,4rem)] font-semibold">
-            アンケートに参加する
-          </h1>
-          {qrPanel}
-        </div>
+        <FitToViewport>
+          <div className="flex flex-col items-center gap-10 px-8 py-12 text-center">
+            <h1 className="text-[clamp(2rem,4.5vw,4rem)] font-semibold">
+              アンケートに参加する
+            </h1>
+            {qrPanel}
+          </div>
+        </FitToViewport>
       ) : (
         // ★以前は max-w-4xl（896px）に収めていたため、大画面プロジェクタでは
         // 左右に大きな余白が残っていた。表示物を主役にするため、幅は
         // ビューポート基準（w-[92vw]、上限だけ広めに確保）に、文字・バーの
         // サイズも clamp() でビューポート幅に応じてスケールする
         // （result-bars.tsx の "large" scale・qr-panel.tsx と同じ方針）。
-        <div className="mx-auto flex w-[92vw] max-w-[1800px] flex-1 flex-col justify-center gap-[3vw] px-[2vw] py-[3vw]">
-          <header className="flex flex-col gap-3">
-            {position && (
-              <p className="text-[clamp(1.125rem,1.8vw,1.75rem)] font-medium tracking-wide text-white/50">
-                設問 {position.index + 1} / {position.total}
-              </p>
-            )}
-            <h1 className="text-[clamp(2.5rem,4.6vw,5rem)] font-semibold leading-tight">
-              {question.prompt}
-            </h1>
-          </header>
+        <FitToViewport>
+          <div className="mx-auto flex w-[92vw] max-w-[1800px] flex-col gap-[3vw] px-[2vw] py-[3vw]">
+            <header className="flex flex-col gap-3">
+              {position && (
+                <p className="text-[clamp(1.125rem,1.8vw,1.75rem)] font-medium tracking-wide text-white/50">
+                  設問 {position.index + 1} / {position.total}
+                </p>
+              )}
+              <h1 className="text-[clamp(2.5rem,4.6vw,5rem)] font-semibold leading-tight">
+                {question.prompt}
+              </h1>
+            </header>
 
-          {revealed && results ? (
-            results.kind === "choice" && isChoiceLike(question) ? (
-              <ResultBars
-                question={question}
-                counts={results.counts}
-                closed={phase === "closed"}
-                respondents={results.respondents}
-                scale="large"
-              />
-            ) : results.kind === "text" ? (
-              <TextAnswerList answers={results.answers} scale="large" />
-            ) : null
-          ) : (
-            <div className="flex flex-col items-center gap-4 py-12">
-              <p className="text-[clamp(6rem,14vw,12rem)] font-bold tabular-nums">
-                {answeredCount}
-              </p>
-              <p className="text-[clamp(1.5rem,2.6vw,2.5rem)] text-white/60">人 回答済み</p>
-            </div>
-          )}
-        </div>
+            {revealed && results ? (
+              results.kind === "choice" && isChoiceLike(question) ? (
+                <ResultBars
+                  question={question}
+                  counts={results.counts}
+                  closed={phase === "closed"}
+                  respondents={results.respondents}
+                  scale="large"
+                />
+              ) : results.kind === "text" ? (
+                <TextAnswerList answers={results.answers} scale="large" />
+              ) : null
+            ) : (
+              <div className="flex flex-col items-center gap-4 py-12">
+                <p className="text-[clamp(6rem,14vw,12rem)] font-bold tabular-nums">
+                  {answeredCount}
+                </p>
+                <p className="text-[clamp(1.5rem,2.6vw,2.5rem)] text-white/60">人 回答済み</p>
+              </div>
+            )}
+          </div>
+        </FitToViewport>
       )}
     </div>
   );
