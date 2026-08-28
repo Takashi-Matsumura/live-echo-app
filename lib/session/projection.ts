@@ -61,12 +61,18 @@ export function toPublicState(
 }
 
 /**
- * 参加者の「過去の結果」一覧に出す設問（一度でも公開され、今は出題中
- * ではないもの）。role を問わず同じ内容を配る ── 設問文は公開時点で
- * 既に見えていた情報なので機密性は無い。実際の集計値はここには含めず、
+ * 参加者の「過去の結果」一覧に出す設問（一度でも公開されたもの）。
+ * role を問わず同じ内容を配る ── 設問文は公開時点で既に見えていた情報
+ * なので機密性は無い。実際の集計値はここには含めず、
  * GET /api/results?questionId=... で別途取得させる（resultsForQuestion
  * が revealedQuestionIds を再確認するので、ここでの絞り込みは表示上の
  * 一覧を作るためだけで、実際のアクセス制御はそちら側にもある）。
+ *
+ * ★以前は「今アクティブな設問はどのみちライブで見えているので除外する」
+ * としていたが、それだと出題中の設問を切り替えて戻すだけで一覧から
+ * 消えたり現れたりして分かりづらかった（実運用で確認された）。今は
+ * アクティブかどうかに関わらず、公開済みなら常に一覧に出す。ライブ画面と
+ * 一覧の両方に同じ設問が出ることになるが、実害は無い単純な重複でしかない。
  */
 function buildPastQuestions(
   state: SessionState,
@@ -74,7 +80,6 @@ function buildPastQuestions(
 ): PublicState["pastQuestions"] {
   const result: { id: string; prompt: string }[] = [];
   for (const id of state.revealedQuestionIds) {
-    if (id === state.activeQuestionId) continue;
     const question = getQuestionById(questions, id);
     if (question) result.push({ id: question.id, prompt: question.prompt });
   }
