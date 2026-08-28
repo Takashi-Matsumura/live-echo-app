@@ -147,6 +147,15 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
             設問をエクスポート
           </a>
         )}
+        {questions.length > 0 && (
+          <a
+            href="/api/admin/results/export"
+            download
+            className="text-sm underline"
+          >
+            アンケート結果をエクスポート（CSV）
+          </a>
+        )}
         <button
           type="button"
           onClick={openImportForm}

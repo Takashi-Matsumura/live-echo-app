@@ -8,6 +8,7 @@ import type {
   PublicState,
   Question,
   Role,
+  SessionState,
   ValidatedQuestionData,
   VoteResult,
 } from "@/lib/types";
@@ -27,6 +28,11 @@ export async function snapshotFor(role: Role): Promise<PublicState> {
 export async function personalFor(participantId: string): Promise<PersonalState> {
   const stub = await getSessionStub();
   return stub.personal(participantId);
+}
+
+export async function getRawState(): Promise<SessionState> {
+  const stub = await getSessionStub();
+  return stub.getRawState();
 }
 
 export async function openEventStream(
