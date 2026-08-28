@@ -7,7 +7,6 @@ import {
   resetQuestion,
   selectQuestion,
   setPhase,
-  setPresentQuestion,
   setRevealed,
   unhideAnswer,
 } from "@/app/admin/actions";
@@ -16,7 +15,6 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   DownloadIcon,
   PencilIcon,
-  ScreenIcon,
   TrashIcon,
   UploadIcon,
   WarningIcon,
@@ -97,26 +95,6 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-8">
-      {/* 投影が進行中の設問から切り離されている間、常に見える位置に出す
-          （固定していることを忘れたまま放置されるのを防ぐ）。モードに
-          関係なく表示する — 破壊的操作ではなく、進行中こそ気づきたい状態。 */}
-      {state.presentOverride && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent)]">
-          <span className="flex items-center gap-2">
-            <ScreenIcon />
-            投影は「{state.presentOverride.question.prompt}」の結果に固定表示中です
-          </span>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run(() => setPresentQuestion(null))}
-            className="shrink-0 rounded-full border border-[var(--accent)] px-3 py-1 text-xs font-medium disabled:opacity-50"
-          >
-            ライブに戻す
-          </button>
-        </div>
-      )}
-
       <section className="flex flex-col gap-3">
         {/* 見出しはタブボタン（「設問一覧」）自体が兼ねるため、ここでは重複させない
             （components/brand-settings.tsx と同じ判断）。
@@ -161,7 +139,6 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
                   run={run}
                   onEdit={openEditForm}
                   editable={mode === "setup"}
-                  isPinnedToPresent={state.presentOverride?.question.id === q.id}
                 />
               );
             })}
@@ -293,7 +270,6 @@ function QuestionRow({
   run,
   onEdit,
   editable,
-  isPinnedToPresent,
 }: {
   itemRef?: Ref<HTMLLIElement>;
   index: number;
@@ -310,8 +286,6 @@ function QuestionRow({
    *  破壊的操作なので、進行中モードでは画面から隠す
    *  （components/admin-mode.tsx 参照）。 */
   editable: boolean;
-  /** 投影（/present）が今この設問の結果に固定表示中かどうか。 */
-  isPinnedToPresent: boolean;
 }) {
   const resetDialogRef = useRef<HTMLDialogElement>(null);
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
@@ -367,29 +341,6 @@ function QuestionRow({
               <TrashIcon />
             </button>
           </>
-        )}
-
-        {/* 出題中の設問はどのみち /present にライブで映るので、固定表示は
-            それ以外の（既に結果が出ている）設問に対してだけ提供する。
-            これにより「投票をまだ受け付けている出題中の設問を、締切・
-            公開前にうっかり投影へ固定表示してしまう」導線も構造的に無くなる。 */}
-        {!isActive && (
-          <button
-            type="button"
-            disabled={pending}
-            aria-pressed={isPinnedToPresent}
-            onClick={() =>
-              run(() => setPresentQuestion(isPinnedToPresent ? null : question.id))
-            }
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 text-sm font-medium disabled:opacity-50 ${
-              isPinnedToPresent
-                ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
-                : "border-black/10 text-black/60 dark:border-white/15 dark:text-white/60"
-            }`}
-          >
-            <ScreenIcon />
-            {isPinnedToPresent ? "投影中" : "投影で見る"}
-          </button>
         )}
 
         {isActive ? (

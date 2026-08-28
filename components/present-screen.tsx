@@ -93,9 +93,12 @@ export function PresentScreen({
   const currentIndex = currentId ? navigableIds.indexOf(currentId) : -1;
   // 出題中の設問（まだ固定していない「ライブ」表示）に戻す先の id。
   // 矢印で右端（最新）まで進んだときはここに戻す ── 個別の設問idを
-  // pin するのではなく null にして setPresentQuestion(null) を呼ぶことで、
-  // 締切前でも「常に締切後扱い」にしてしまう presentOverride の表示に
-  // せず、本来のライブ表示（closed は phase 由来）に戻す。
+  // pin するのではなく null にして setPresentQuestion(null) を呼ぶ。
+  // presentOverride（lib/session/projection.ts の buildPresentOverride）は
+  // revealed の状態を無視して常に結果を返すため、出題中の設問をそのまま
+  // pin し続けると、講師が「結果非公開」に戻しても投影だけ結果を出し
+  // 続けてしまう。null に戻せば通常のライブ分岐（revealed && results）を
+  // 通るので、その食い違いが起きない。
   const liveQuestionId = question?.id ?? null;
   const canGoPrev = navigableIds.length > 1 && (currentIndex > 0 || currentIndex === -1);
   const canGoNext =
@@ -271,7 +274,14 @@ export function PresentScreen({
               <ResultBars
                 question={question}
                 counts={results.counts}
-                closed={phase === "closed"}
+                // ★以前は phase === "closed" のときだけ順位（🥇🥈🥉）を出して
+                // いた（受付中に票が入るたびメダルの位置がちらつくのを避ける
+                // ため）。だが投影は「結果公開中」にした時点で聴衆に見せる
+                // 主役画面であり、過去の結果（presentOverride、下の
+                // if (presentOverride) 分岐）は常に締切後扱いで順位を出して
+                // いるのに、出題中の設問だけ受付中は順位が出ないのは見た目が
+                // 揃わない、という指摘を受けて締切前でも常に出す方針に変えた。
+                closed
                 respondents={results.respondents}
                 scale="large"
               />

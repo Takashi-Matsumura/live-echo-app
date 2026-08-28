@@ -168,21 +168,3 @@ export function ChevronRightIcon() {
   );
 }
 
-/** 投影画面（/present）関連の操作用。モニター＋スタンドの形。 */
-export function ScreenIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-4 w-4"
-      aria-hidden="true"
-    >
-      <path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h11A1.5 1.5 0 0 1 17 4.5v7A1.5 1.5 0 0 1 15.5 13h-11A1.5 1.5 0 0 1 3 11.5v-7Z" />
-      <path d="M7.5 16.5h5M10 13v3.5" />
-    </svg>
-  );
-}
