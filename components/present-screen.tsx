@@ -26,7 +26,7 @@ const DARK_CHART_VARS = {
 
 export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
   const { state } = useLiveState();
-  const { question, phase, revealed, answeredCount, results, position } = state;
+  const { question, phase, revealed, answeredCount, results, position, presentOverride } = state;
 
   useEffect(() => {
     // スリープ抑止。対応ブラウザ（iOS Safari 16.4+ 等）でのみ効く。
@@ -45,6 +45,46 @@ export function PresentScreen({ qrPanel }: { qrPanel: ReactNode }) {
       void sentinel?.release().catch(() => {});
     };
   }, []);
+
+  // ★admin が「他の設問の結果を投影で見る」を選んでいる間は、こちらを
+  // 進行中の activeQuestionId より優先する（components/admin-console.tsx
+  // の投影切替、lib/session/mutations.ts の presentQuestionId 参照）。
+  // 参加者の投票フロー（question/phase/revealed/answeredCount）には
+  // 一切触れない ── /present の表示だけが一時的に切り離される。
+  if (presentOverride) {
+    const { question: pinnedQuestion, results: pinnedResults } = presentOverride;
+    return (
+      <div
+        style={DARK_CHART_VARS}
+        className="flex min-h-screen flex-1 flex-col bg-[var(--chart-surface)] text-white [cursor:none]"
+      >
+        <div className="mx-auto flex w-[92vw] max-w-[1800px] flex-1 flex-col justify-center gap-[3vw] px-[2vw] py-[3vw]">
+          <header className="flex flex-col gap-3">
+            <p className="text-[clamp(1.125rem,1.8vw,1.75rem)] font-medium tracking-wide text-white/50">
+              振り返り表示
+            </p>
+            <h1 className="text-[clamp(2.5rem,4.6vw,5rem)] font-semibold leading-tight">
+              {pinnedQuestion.prompt}
+            </h1>
+          </header>
+
+          {pinnedResults.kind === "choice" && isChoiceLike(pinnedQuestion) ? (
+            <ResultBars
+              question={pinnedQuestion}
+              counts={pinnedResults.counts}
+              // この設問はもう投票を受け付けていない（進行中の設問と一致
+              // しない限り新規回答は入り得ない）ので、常に締切後扱いにする。
+              closed
+              respondents={pinnedResults.respondents}
+              scale="large"
+            />
+          ) : pinnedResults.kind === "text" ? (
+            <TextAnswerList answers={pinnedResults.answers} scale="large" />
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   const showIdle = !question || phase === "idle";
 

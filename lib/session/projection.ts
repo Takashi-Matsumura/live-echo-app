@@ -55,7 +55,32 @@ export function toPublicState(
     answeredCount,
     results,
     position,
+    presentOverride: buildPresentOverride(state, questions, role),
   };
+}
+
+/**
+ * /present の固定表示（SessionState.presentQuestionId）を role === "admin"
+ * にだけ配る。participant には一切見せない（そもそも関係ない情報だが、
+ * 念のため他の admin 専用情報と同じ扱いに揃える）。
+ *
+ * 固定先の設問は「もう投票を受け付けていない」前提（現在の
+ * activeQuestionId と一致しない限り、applyCastVote が activeQuestionId
+ * 一致を要求するため新規回答が入り得ない）なので、revealed のゲートは
+ * 通さず常に結果を返す ── これは admin が明示的に選んだ操作であり、
+ * 参加者向けの結果開示タイミング制御（shouldShowResults）とは別の話。
+ */
+function buildPresentOverride(
+  state: SessionState,
+  questions: readonly Question[],
+  role: Role,
+): PublicState["presentOverride"] {
+  if (role !== "admin" || !state.presentQuestionId) return null;
+  const question = getQuestionById(questions, state.presentQuestionId);
+  if (!question) return null;
+  const ballots = state.ballots[question.id] ?? {};
+  const hiddenIds = state.hidden[question.id] ?? [];
+  return { question, results: buildResults(question, ballots, hiddenIds, role) };
 }
 
 function buildResults(

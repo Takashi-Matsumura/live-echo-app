@@ -72,6 +72,11 @@ export async function setRevealed(revealed: boolean): Promise<void> {
   return stub.setRevealed(revealed);
 }
 
+export async function setPresentQuestion(questionId: string | null): Promise<void> {
+  const stub = await getSessionStub();
+  return stub.setPresentQuestion(questionId);
+}
+
 export async function hideAnswer(questionId: string, participantId: string): Promise<void> {
   const stub = await getSessionStub();
   return stub.hideAnswer(questionId, participantId);

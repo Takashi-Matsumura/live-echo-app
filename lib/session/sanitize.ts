@@ -79,6 +79,12 @@ export function sanitizePersistedState(
       ? raw.activeQuestionId
       : null;
 
+  // 設問が見つからなくなっていたら（管理画面で削除した後など）固定表示を解除する。
+  const presentQuestionId =
+    typeof raw.presentQuestionId === "string" && validQuestionIds.has(raw.presentQuestionId)
+      ? raw.presentQuestionId
+      : null;
+
   return {
     rev: raw.rev,
     activeQuestionId,
@@ -87,6 +93,7 @@ export function sanitizePersistedState(
     revealed: activeQuestionId ? raw.revealed : false,
     ballots,
     hidden,
+    presentQuestionId,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
   };
 }

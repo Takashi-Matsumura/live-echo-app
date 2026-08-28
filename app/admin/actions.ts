@@ -75,6 +75,16 @@ export async function setRevealed(revealed: boolean): Promise<void> {
   await service.setRevealed(revealed);
 }
 
+/**
+ * /present を進行中の設問から切り離し、指定した設問（既に回答が集まって
+ * いるもの）の結果を固定表示させる。null で解除してライブ追従に戻す。
+ * 参加者の投票フロー（activeQuestionId・phase・revealed）には触れない。
+ */
+export async function setPresentQuestion(questionId: string | null): Promise<void> {
+  await assertAdmin();
+  await service.setPresentQuestion(questionId);
+}
+
 export async function hideAnswer(
   questionId: string,
   participantId: string,
