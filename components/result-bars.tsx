@@ -10,18 +10,28 @@ const SCALE = {
     count: "text-sm",
     badge: "h-4 w-4 text-[10px]",
     medal: "text-sm",
+    gap: "gap-3",
   },
   // /present（投影モード）用。dataviz スキルの「バーは24px以下」という
   // マーク仕様は、複数系列が並ぶ通常のダッシュボードを前提にした指針。
   // ここは1画面1系列（choice）だけを大写しする「投影の主役」なので、
-  // 視聴距離の長さを踏まえてあえて超える（clamp()でビューポート幅に
-  // 応じて滑らかにスケールし、小さい投影機では過大にならない）。
+  // 視聴距離の長さを踏まえてあえて超える。
+  //
+  // ★以前は vw（ビューポート幅）基準の clamp() で、はみ出した分は
+  // FitToViewport が transform: scale() で丸ごと縮小して吸収していた。
+  // これだと選択肢の数によって表示サイズが毎回変わってしまう。今は
+  // dvh（ビューポート高さ）基準にし、選択肢は最大8つ（lib/questions.ts
+  // の MAX_CHOICES）という制約を前提に、8項目分がスクロールなしで収まる
+  // 縦領域になるようサイズを固定で決め打ちする。結果、項目数に関わらず
+  // 常に同じ大きさで表示され、8つに満たない場合は単に余白が残る
+  // （present-screen.tsx 側で縦方向 justify-center）。
   large: {
-    track: "h-[clamp(2.25rem,3.4vw,4rem)]",
-    label: "text-[clamp(1.375rem,2.1vw,2.25rem)]",
-    count: "text-[clamp(1.125rem,1.6vw,1.75rem)]",
-    badge: "h-8 w-8 text-base",
-    medal: "text-[clamp(1.5rem,2.2vw,2.25rem)]",
+    track: "h-[clamp(1.75rem,4.2dvh,3.75rem)]",
+    label: "text-[clamp(1.125rem,2.1dvh,2rem)]",
+    count: "text-[clamp(0.95rem,1.6dvh,1.5rem)]",
+    badge: "h-7 w-7 text-sm",
+    medal: "text-[clamp(1.25rem,2.2dvh,2rem)]",
+    gap: "gap-[1.4dvh]",
   },
 } as const;
 
@@ -129,7 +139,7 @@ export function ResultBars({
   }, []);
 
   return (
-    <ul className="flex flex-col gap-3" role="list">
+    <ul className={`flex flex-col ${sizes.gap}`} role="list">
       {question.choices.map((choice, index) => {
         const count = counts[choice.id] ?? 0;
         const pct = respondents > 0 ? Math.round((count / respondents) * 100) : 0;
