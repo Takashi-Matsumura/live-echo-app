@@ -129,6 +129,15 @@ export type SessionState = {
    * （activeQuestionId・phase・revealed）には一切影響しない。
    */
   readonly presentQuestionId: string | null;
+  /**
+   * 一度でも revealed:true にされた（＝講師が結果公開した）設問idの集合。
+   * 参加者が「過去の結果」から振り返れる範囲をこれで決める ── 講師が
+   * 結果開示を制御するという既存の原則（lib/session/projection.ts の
+   * toPublicState コメント参照）を、公開後の振り返り機能でも崩さない
+   * ため。一度追加したら、その設問がリセット・削除されるまで残る
+   * （公開を取り消しても消えない。取り消したいときは resetQuestion を使う）。
+   */
+  readonly revealedQuestionIds: readonly string[];
   readonly updatedAt: number;
 };
 
@@ -179,6 +188,15 @@ export type PublicState = {
    * closed 相当として扱ってよい。
    */
   readonly presentOverride: { readonly question: Question; readonly results: PublicResults } | null;
+  /**
+   * 一度でも結果公開された、現在アクティブではない設問の一覧（新しい順で
+   * ある保証はない）。participant・admin どちらの role にも配る ── 設問文
+   * 自体は公開時点で既に見えていた情報であり、機密性は無い。参加者画面
+   * の「過去の結果」一覧はこれを描画するだけで、実際の集計値は
+   * GET /api/results?questionId=... を別途取得する（revealedQuestionIds
+   * に無い questionId は 404 になり、公開していない結果は取得できない）。
+   */
+  readonly pastQuestions: readonly { readonly id: string; readonly prompt: string }[];
 };
 
 export type PersonalState = {

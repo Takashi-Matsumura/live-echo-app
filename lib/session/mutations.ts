@@ -100,6 +100,11 @@ export function applySelectQuestion(
     // ままだと「投票を再開したのに投影は古い結果のまま」という食い違いが
     // 起きるため（この設問を再度出題した場合を含む）。
     presentQuestionId: null,
+    // この設問を過去に公開していても、新しいラウンドが始まった以上いったん
+    // 「未公開」に戻す。再公開されれば applySetRevealed がまた追加する。
+    // これをしないと、出題中で結果がまだ非公開の設問が参加者の「過去の
+    // 結果」一覧に古い集計のまま出てしまう。
+    revealedQuestionIds: current.revealedQuestionIds.filter((id) => id !== questionId),
   });
 }
 
@@ -108,7 +113,16 @@ export function applySetPhase(current: SessionState, phase: Phase): SessionState
 }
 
 export function applySetRevealed(current: SessionState, revealed: boolean): SessionState {
-  return commit(current, { revealed });
+  // 結果を公開した瞬間、その設問idを「一度でも公開した」集合に記録する。
+  // 参加者の「過去の結果」振り返り（PublicState.pastQuestions）が
+  // 参照する唯一の書き込み経路 ── ここを通らない限り、参加者はどの設問の
+  // 結果も振り返れない（講師が結果開示を制御する原則を振り返り機能でも守る）。
+  const activeId = current.activeQuestionId;
+  const revealedQuestionIds =
+    revealed && activeId && !current.revealedQuestionIds.includes(activeId)
+      ? [...current.revealedQuestionIds, activeId]
+      : current.revealedQuestionIds;
+  return commit(current, { revealed, revealedQuestionIds });
 }
 
 /** /present の固定表示先を切り替える。null で解除（ライブ追従に戻す）。 */
@@ -160,6 +174,10 @@ export function applyResetQuestion(current: SessionState, questionId: string): S
     // 固定表示先の回答を消したなら、空の結果が投影に残らないよう解除する。
     presentQuestionId:
       current.presentQuestionId === questionId ? null : current.presentQuestionId,
+    // 回答を消した以上、参加者の「過去の結果」からも除く（空の結果を
+    // 振り返らせても意味が無い。再度公開されれば applySetRevealed が
+    // また追加する）。
+    revealedQuestionIds: current.revealedQuestionIds.filter((id) => id !== questionId),
   });
 }
 
@@ -171,6 +189,7 @@ export function applyResetAll(current: SessionState): SessionState {
     ballots: {},
     hidden: {},
     presentQuestionId: null,
+    revealedQuestionIds: [],
   });
 }
 
@@ -241,5 +260,6 @@ export function applyQuestionRemoved(current: SessionState, questionId: string):
     revealed: wasActive ? false : current.revealed,
     presentQuestionId:
       current.presentQuestionId === questionId ? null : current.presentQuestionId,
+    revealedQuestionIds: current.revealedQuestionIds.filter((id) => id !== questionId),
   });
 }

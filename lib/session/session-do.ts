@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { isChoiceLike, MAX_QUESTIONS } from "@/lib/questions";
 import { SESSION_FULL_ERROR } from "@/lib/session/errors";
 import { sanitizePersistedQuestions, sanitizePersistedState } from "@/lib/session/sanitize";
-import { toPublicState } from "@/lib/session/projection";
+import { resultsForQuestion, toPublicState } from "@/lib/session/projection";
 import {
   applyCastVote,
   applyChoicesRemoved,
@@ -25,6 +25,7 @@ import type {
   BrandLogoMime,
   Phase,
   PersonalState,
+  PublicResults,
   PublicState,
   Question,
   Role,
@@ -125,6 +126,7 @@ function initialState(): SessionState {
     ballots: {},
     hidden: {},
     presentQuestionId: null,
+    revealedQuestionIds: [],
     updatedAt: Date.now(),
   };
 }
@@ -259,6 +261,17 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   async personal(participantId: string): Promise<PersonalState> {
     return this.personalFromState(this.state, participantId);
+  }
+
+  /** 過去に公開された設問1件の結果を取り出す（参加者の「過去の結果」
+   *  振り返り・GET /api/results 専用）。指定した questionId が
+   *  revealedQuestionIds に無ければ（未公開・リセット済み・削除済み）
+   *  null ── projection.ts の resultsForQuestion が再検証する。 */
+  async getResultsFor(
+    questionId: string,
+    role: Role,
+  ): Promise<{ readonly question: Question; readonly results: PublicResults } | null> {
+    return resultsForQuestion(this.state, this.questions, questionId, role);
   }
 
   /** 集計済みの PublicState ではなく生の ballots/hidden を返す。管理者の
