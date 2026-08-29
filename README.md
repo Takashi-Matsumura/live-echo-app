@@ -117,6 +117,8 @@ TOTP 未登録の間（初回デプロイ直後・`TOTP_SECRET` ローテーシ�
 
 `/present` を投影機のブラウザで開くと、待機中は常時 QR コードが表示される。参加者はスマホのカメラで QR を読み取るだけで `/` にアクセスできる（アプリのインストール等は不要）。
 
+**投影画面から過去の結果を振り返る**: `/present` の見出し（「設問 X / Y」）の左右にある矢印アイコンで、これまでに結果を公開した設問（登録順）を行き来できる。管理画面を別タブで開いて操作する必要はなく、投影しているブラウザをマウスで直接クリックするだけでよい。最新（出題中）の設問まで進めると自動的にライブ表示へ戻る。参加者のスマホ画面（`/`）にも同様の「過去の結果を見る」導線があり、各自のタイミングで公開済みの設問を振り返れる。
+
 **管理画面の「準備中／進行中」モード**: 管理画面ヘッダーのモード切替で、設問の編集・削除・データ入出力・全体リセット・全端末ログアウト・ブランド設定を「準備中」限定にできる。「進行中」では設問を出す・受付・結果公開・回答の伏せる/表示・QRコード表示・結果CSVエクスポートだけに絞られ、本番進行中に破壊的な操作へ誤って触れる導線を減らせる。この状態はブラウザの localStorage にのみ保存され（サーバには送らない）、認可・TOTP のチェックは弱めない——あくまで表示上のガードレール。
 
 **管理者セッションの盗難に気づいたとき**: 管理画面の「準備中」モードに切り替え、「危険な操作」の「全端末ログアウト」を押すと、この端末を含め発行済みの管理者セッションを即座にすべて無効化できる（`wrangler secret put SESSION_SECRET` による再デプロイ不要）。次回は改めてパスワード＋認証コードでログインする。
@@ -141,7 +143,8 @@ TOTP 未登録の間（初回デプロイ直後・`TOTP_SECRET` ローテーシ�
 - **配信**: 同じ Durable Object の中で SSE 購読者を管理し、状態が変わるたびに `event: state` を push する。
 - **投票・管理操作**: Server Actions（`app/actions.ts`, `app/admin/actions.ts`）から `lib/session/service.ts`（DO への薄い RPC クライアント）経由で `SessionDO` のメソッドを呼ぶ。
 - **結果開示の境界**: `lib/session/projection.ts` の `toPublicState()` の1箇所だけ。UI 側で `revealed` を見て出し分けるのではなく、シリアライズ層で非公開データを落とす。
-- **レート制限**: 投票（`castVote`）・パスワードログイン試行（`checkLoginRate`）は `SessionDO` のインスタンスフィールド（`lib/rate-limit.ts` の `checkRateLimit()` を使う固定窓カウンタ）で一元管理する。Workers は複数 isolate に分散するため、Next.js 側のモジュールスコープにカウンタを置くと isolate ごとに別集計になってしまう。すべてのリクエストが最終的に同じ DO を経由することを利用し、DO 側に寄せてある。**TOTP コードの失敗カウンタだけは例外的に DO の `ctx.storage`（SQLite）に永続化**している（`TOTP_STORAGE_KEY`）。6桁コード（100万通り）は in-memory カウンタでは守り切れない — DO は購読者ゼロで短時間退避するため、攻撃者が「数回試す→退避を待つ→また数回」を繰り返すとインスタンスフィールドのカウンタはリセットされてしまう。
+- **`SessionDO` 内の責務分割**: 投票・出題進行など投票のたびに触るホットパスは `SessionDO` 本体（`lib/session/session-do.ts`）に残す一方、非ホットパスで独立したストレージキーを持つ機能はそれぞれ専用モジュールに切り出し、`SessionDO` からは薄い委譲メソッドで呼ぶ（Cloudflare の DO RPC は `SessionDO` 自身のメソッドしか外部から呼べないため、実体を切り出しても公開用の窓口は本体に残す必要がある）。ブランド設定（ロゴ）は `lib/session/brand-storage.ts` の `BrandLogoStore`、TOTP の登録状態・レート制限は `lib/session/totp-gate.ts` の `TotpGate` が持つ。
+- **レート制限**: 投票（`castVote`）・パスワードログイン試行（`checkLoginRate`）は `SessionDO` のインスタンスフィールド（`lib/rate-limit.ts` の `checkRateLimit()` を使う固定窓カウンタ）で一元管理する。Workers は複数 isolate に分散するため、Next.js 側のモジュールスコープにカウンタを置くと isolate ごとに別集計になってしまう。すべてのリクエストが最終的に同じ DO を経由することを利用し、DO 側に寄せてある。**TOTP コードの失敗カウンタだけは例外的に `ctx.storage`（SQLite）に永続化**している（`lib/session/totp-gate.ts` の `TotpGate`）。6桁コード（100万通り）は in-memory カウンタでは守り切れない — DO は購読者ゼロで短時間退避するため、攻撃者が「数回試す→退避を待つ→また数回」を繰り返すとインスタンスフィールドのカウンタはリセットされてしまう。
 - **認証**: 管理者セッションは HMAC 署名付き Cookie（`lib/auth/admin.ts`）。Cloudflare は HTTPS のみのため Cookie は `secure: true`。ログイン試行のレート制限キーには、クライアントが偽装できない `cf-connecting-ip`（Cloudflare が付与）を最優先で使う。パスワード検証に加えて TOTP（`lib/auth/totp.ts`、RFC 6238）による二要素認証を必須にしている（`lib/auth/admin.ts` の `attemptAdminLogin()`）:
   - シークレット自体は `TOTP_SECRET` 環境変数のみに存在し、DO には **sha256 で切り詰めた指紋**（`totpSecretFingerprint()`）だけを保存する。パスワード正解かつ未登録（または指紋不一致）ならログイン画面にQRコードを自動表示し、Authenticator アプリへの登録を促す。登録済みならQRは出さずコード入力のみを求める
   - **端末紛失時の復旧経路**は `ADMIN_PASSWORD`/`SESSION_SECRET` と同じ操作性: `wrangler secret put TOTP_SECRET` で値を差し替えて再デプロイするだけでよい。次回ログイン時に指紋が一致しなくなり、自動的にQRが再表示される
