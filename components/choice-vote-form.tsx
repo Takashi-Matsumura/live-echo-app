@@ -3,6 +3,9 @@
 import { useState, useTransition } from "react";
 import { submitVote } from "@/app/actions";
 import { useLiveState } from "@/components/live-state-provider";
+import { VoteError } from "@/components/vote-error";
+import { VoteOptionLabel } from "@/components/vote-option-label";
+import { VoteSubmitButton } from "@/components/vote-submit-button";
 import { asFormAction } from "@/lib/form-action";
 import { answerText } from "@/lib/questions";
 import { voteErrorMessage } from "@/lib/vote-messages";
@@ -46,31 +49,16 @@ export function ChoiceVoteForm({ question }: { question: ChoiceQuestion }) {
       className="flex flex-col gap-3"
     >
       <div className="flex flex-col gap-3" role="list">
-        {question.choices.map((choice) => {
-          const isChecked = selected === choice.id;
-          return (
-            <label
-              key={choice.id}
-              role="listitem"
-              className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-5 py-4 text-left text-base font-medium transition-colors ${
-                isChecked
-                  ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                  : "border-black/10 bg-white hover:border-black/20 dark:border-white/15 dark:bg-white/5 dark:hover:border-white/25"
-              }`}
-            >
-              <span>{choice.label}</span>
-              <input
-                type="radio"
-                name="answer"
-                value={choice.id}
-                checked={isChecked}
-                onChange={() => setSelected(choice.id)}
-                className="sr-only"
-              />
-              {isChecked && <span aria-hidden>✓</span>}
-            </label>
-          );
-        })}
+        {question.choices.map((choice) => (
+          <VoteOptionLabel
+            key={choice.id}
+            type="radio"
+            label={choice.label}
+            value={choice.id}
+            checked={selected === choice.id}
+            onChange={() => setSelected(choice.id)}
+          />
+        ))}
       </div>
 
       {you.myAnswer && (
@@ -79,18 +67,8 @@ export function ChoiceVoteForm({ question }: { question: ChoiceQuestion }) {
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={pending || !selected}
-        className="self-start rounded-full bg-[var(--accent)] px-6 py-3 font-medium text-white disabled:opacity-50"
-      >
-        {you.myAnswer ? "回答し直す" : "回答する"}
-      </button>
-      {error && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
+      <VoteSubmitButton pending={pending} disabled={!selected} alreadyAnswered={!!you.myAnswer} />
+      <VoteError error={error} />
     </form>
   );
 }

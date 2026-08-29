@@ -3,6 +3,9 @@
 import { useState, useTransition } from "react";
 import { submitVote } from "@/app/actions";
 import { useLiveState } from "@/components/live-state-provider";
+import { VoteError } from "@/components/vote-error";
+import { VoteOptionLabel } from "@/components/vote-option-label";
+import { VoteSubmitButton } from "@/components/vote-submit-button";
 import { asFormAction } from "@/lib/form-action";
 import { selectedChoiceIds } from "@/lib/questions";
 import { voteErrorMessage } from "@/lib/vote-messages";
@@ -63,31 +66,16 @@ export function MultiVoteForm({ question }: { question: MultiChoiceQuestion }) {
       className="flex flex-col gap-3"
     >
       <div className="flex flex-col gap-3" role="list">
-        {question.choices.map((choice) => {
-          const isChecked = selected.has(choice.id);
-          return (
-            <label
-              key={choice.id}
-              role="listitem"
-              className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-5 py-4 text-left text-base font-medium transition-colors ${
-                isChecked
-                  ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                  : "border-black/10 bg-white hover:border-black/20 dark:border-white/15 dark:bg-white/5 dark:hover:border-white/25"
-              }`}
-            >
-              <span>{choice.label}</span>
-              <input
-                type="checkbox"
-                name="answer"
-                value={choice.id}
-                checked={isChecked}
-                onChange={() => toggle(choice.id)}
-                className="sr-only"
-              />
-              {isChecked && <span aria-hidden>✓</span>}
-            </label>
-          );
-        })}
+        {question.choices.map((choice) => (
+          <VoteOptionLabel
+            key={choice.id}
+            type="checkbox"
+            label={choice.label}
+            value={choice.id}
+            checked={selected.has(choice.id)}
+            onChange={() => toggle(choice.id)}
+          />
+        ))}
       </div>
 
       <div className="flex items-center justify-between text-sm text-black/50 dark:text-white/50">
@@ -97,18 +85,12 @@ export function MultiVoteForm({ question }: { question: MultiChoiceQuestion }) {
         <span className="tabular-nums">{selected.size}個選択中</span>
       </div>
 
-      <button
-        type="submit"
-        disabled={pending || selected.size === 0}
-        className="self-start rounded-full bg-[var(--accent)] px-6 py-3 font-medium text-white disabled:opacity-50"
-      >
-        {you.myAnswer ? "回答し直す" : "回答する"}
-      </button>
-      {error && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
+      <VoteSubmitButton
+        pending={pending}
+        disabled={selected.size === 0}
+        alreadyAnswered={!!you.myAnswer}
+      />
+      <VoteError error={error} />
     </form>
   );
 }
