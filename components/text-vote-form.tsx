@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { submitVote } from "@/app/actions";
 import { useLiveState } from "@/components/live-state-provider";
+import { VoteError } from "@/components/vote-error";
+import { VoteSubmitButton } from "@/components/vote-submit-button";
 import { asFormAction } from "@/lib/form-action";
 import { voteErrorMessage } from "@/lib/vote-messages";
 import type { TextQuestion, VoteResult } from "@/lib/types";
@@ -58,18 +60,12 @@ export function TextVoteForm({ question }: { question: TextQuestion }) {
           {value.length}/{maxLength}
         </span>
       </div>
-      <button
-        type="submit"
-        disabled={pending || value.trim().length === 0}
-        className="self-start rounded-full bg-[var(--accent)] px-6 py-3 font-medium text-white disabled:opacity-50"
-      >
-        {you.myAnswer ? "回答し直す" : "回答する"}
-      </button>
-      {error && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
+      <VoteSubmitButton
+        pending={pending}
+        disabled={value.trim().length === 0}
+        alreadyAnswered={!!you.myAnswer}
+      />
+      <VoteError error={error} />
     </form>
   );
 }

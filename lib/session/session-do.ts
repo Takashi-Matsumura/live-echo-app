@@ -1,8 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { isChoiceLike, MAX_QUESTIONS } from "@/lib/questions";
+import { BrandLogoStore } from "@/lib/session/brand-storage";
 import { SESSION_FULL_ERROR } from "@/lib/session/errors";
 import { sanitizePersistedQuestions, sanitizePersistedState } from "@/lib/session/sanitize";
 import { resultsForQuestion, toPublicState } from "@/lib/session/projection";
+import { TotpGate } from "@/lib/session/totp-gate";
 import {
   applyCastVote,
   applyChoicesRemoved,
@@ -46,74 +48,21 @@ const VOTE_WINDOW_MS = 60_000;
 const MAX_SUBSCRIBERS = 1000;
 const LOGIN_LIMIT = 10;
 const LOGIN_WINDOW_MS = 60_000;
-// TOTP は6桁（100万通り）なのでパスワードよりブルートフォース耐性が低い。
-// loginBuckets と違いインスタンスフィールドの in-memory カウンタにはしない
-// — DO は購読者ゼロで短時間退避するため、in-memory だと「数回試す→退避を
-// 待つ→また数回」というペーシング攻撃でカウンタが初期化されてしまい、
-// 6桁コードの防御として実質機能しない。TOTP_STORAGE_KEY（ctx.storage）に
-// 永続化する。
-const TOTP_FAIL_LIMIT = 10;
-const TOTP_FAIL_WINDOW_MS = 15 * 60_000;
 const STATE_STORAGE_KEY = "state";
-// ブランド設定は SessionState（"state" キー）とは独立したキーに保存する。
-// state は投票のたびに publish() で全接続へ SSE 配信されるため、画像バイト
-// 列をそこに混ぜてはいけない。読み書きの頻度も低いのでホットパス外に置く。
-const BRAND_LOGO_STORAGE_KEY = "brandLogo";
-// 設問も SessionState とは別キー。ただし brand logo と違い toPublicState()
+// 設問は SessionState とは別キー。ただし brand logo と違い toPublicState()
 // がホットパス（投票のたびに publish() が同期的に呼ぶ）で必要とするため、
 // storage を都度読むのではなく this.questions に常駐させる
-// （コンストラクタの blockConcurrencyWhile でロード）。
+// （コンストラクタの blockConcurrencyWhile でロード）。ブランド設定
+// （lib/session/brand-storage.ts）・TOTP登録状態（lib/session/totp-gate.ts）
+// は逆に非ホットパスなので、それぞれ自分のストレージキーを自分で持つ
+// 独立モジュールに切り出してある。
 const QUESTIONS_STORAGE_KEY = "questions";
-// TOTP の登録状態・失敗カウンタ。brandLogo と同じく非ホットパスの独立キー。
-// シークレットの生値ではなく指紋（lib/auth/totp.ts の totpSecretFingerprint）
-// だけを持つ — DO はレート制限などの解決済みロジックだけを担い、認証の
-// 秘密情報そのものは Worker 側（環境変数）に留める既存方針を踏襲する。
-const TOTP_STORAGE_KEY = "totp";
 // 管理者セッションの「世代番号」。lib/auth/admin.ts が発行する le_admin
 // Cookie にこの時点の値を焼き込み、以後の isAdmin() 判定はここに保持する
 // 現在値との一致を都度確認する。盗難時など「全端末ログアウト」操作は
 // この値をインクリメントするだけでよく、それだけで既発行の Cookie が
 // （SESSION_SECRET のローテーション＝再デプロイなしに）即座に全部無効になる。
 const ADMIN_SESSION_GEN_STORAGE_KEY = "adminSessionGen";
-
-const VALID_LOGO_MIMES: readonly BrandLogoMime[] = ["image/png", "image/jpeg", "image/webp"];
-
-/** DO ストレージから読んだ生データの型を検証する。sanitize.ts と同じ考え方
- * （想定外の形なら例外にせず null にして「無し」扱いにする）。 */
-function isBrandLogo(value: unknown): value is BrandLogo {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    v.bytes instanceof Uint8Array &&
-    typeof v.mime === "string" &&
-    (VALID_LOGO_MIMES as readonly string[]).includes(v.mime) &&
-    typeof v.updatedAt === "number"
-  );
-}
-
-/** TOTP の登録・照合状態。1レコードのみ持つ（管理者は1人の前提）。 */
-type TotpRecord = {
-  /** 直近で登録/照合に成功したシークレットの指紋。現在の env.TOTP_SECRET の
-   *  指紋と一致していれば「登録済み」とみなす（不一致ならシークレットが
-   *  ローテーションされた、または未登録）。 */
-  readonly secretFingerprint: string;
-  /** リプレイ防止（RFC 6238 §5.2）。成功のたびに更新し、同じか過去の
-   *  ステップの再送を拒否する。 */
-  readonly lastUsedStep: number;
-  readonly failCount: number;
-  readonly failWindowResetAt: number;
-};
-
-function isTotpRecord(value: unknown): value is TotpRecord {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.secretFingerprint === "string" &&
-    typeof v.lastUsedStep === "number" &&
-    typeof v.failCount === "number" &&
-    typeof v.failWindowResetAt === "number"
-  );
-}
 
 const encoder = new TextEncoder();
 
@@ -156,9 +105,13 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   private voteBuckets: RateLimitBuckets = new Map();
   private loginBuckets: RateLimitBuckets = new Map();
   private adminSessionGen = 0;
+  private readonly totpGate: TotpGate;
+  private readonly brandLogoStore: BrandLogoStore;
 
   constructor(ctx: DurableObjectState, env: CloudflareEnv) {
     super(ctx, env);
+    this.totpGate = new TotpGate(ctx.storage);
+    this.brandLogoStore = new BrandLogoStore(ctx.storage);
     // コンストラクタ完了まで他の呼び出しはキューイングされるため、
     // 各メソッド側で復元完了を個別に待つ必要はない。
     ctx.blockConcurrencyWhile(async () => {
@@ -405,75 +358,25 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   }
 
   // ── TOTP（第2要素認証）─────────────────────────────────────
-  // 管理者は1人の前提なので、レコードは currentFingerprint に対するグローバル
-  // な1件だけを持つ（IPごとの枠は設けない。第2要素の総当り対策としては
-  // グローバル1枠の方が「攻撃元を分散されると意味がなくなる」問題が無く、
-  // シンプルで頑健）。
-
-  private async readTotpRecord(): Promise<TotpRecord | null> {
-    const raw = await this.ctx.storage.get<unknown>(TOTP_STORAGE_KEY);
-    return isTotpRecord(raw) ? raw : null;
-  }
+  // 登録状態・レート制限そのものは lib/session/totp-gate.ts の TotpGate に
+  // 切り出してある。ここは RPC として公開するための薄い委譲だけを持つ
+  // （Cloudflare の DO RPC は SessionDO 自身に生えたメソッドしか呼べない
+  // ため、実体を切り出しても呼び出し口はここに残す必要がある）。
 
   /** ログイン画面に「未登録（QR表示）」か「登録済み（コード入力のみ）」の
    *  どちらを見せるか、および現在ロックアウト中かを判定する。 */
   async getTotpGate(
     currentFingerprint: string,
   ): Promise<{ registered: boolean; lockedOut: boolean }> {
-    const record = await this.readTotpRecord();
-    if (!record) return { registered: false, lockedOut: false };
-    const lockedOut =
-      record.failWindowResetAt > Date.now() && record.failCount >= TOTP_FAIL_LIMIT;
-    return { registered: record.secretFingerprint === currentFingerprint, lockedOut };
+    return this.totpGate.getGate(currentFingerprint);
   }
 
-  /**
-   * 1回のTOTP照合結果を記録する。成功時はこのメソッドが唯一の書き込み
-   * 経路になる（登録の確定＝通常ログインの成功、どちらもここで扱う）。
-   * ★ await を挟まないので、同時に飛んできた2リクエストでも判定と書き込みが
-   * アトミックになる（castVote 等と同じDOの不変条件）。
-   */
+  /** 1回のTOTP照合結果を記録する。詳細は TotpGate.recordAttempt 参照。 */
   async recordTotpAttempt(
     currentFingerprint: string,
     outcome: { ok: true; step: number } | { ok: false },
   ): Promise<{ accepted: boolean }> {
-    const now = Date.now();
-    const existing = await this.readTotpRecord();
-    const windowActive = !!existing && existing.failWindowResetAt > now;
-    const failCount = windowActive ? existing!.failCount : 0;
-    const failWindowResetAt = windowActive ? existing!.failWindowResetAt : now + TOTP_FAIL_WINDOW_MS;
-
-    if (failCount >= TOTP_FAIL_LIMIT) {
-      // ロックアウト中。getTotpGate 側で弾かれているはずだが、念のため
-      // ここでも二重にガードする。
-      return { accepted: false };
-    }
-
-    const isReplay =
-      outcome.ok &&
-      existing?.secretFingerprint === currentFingerprint &&
-      outcome.step <= existing.lastUsedStep;
-
-    if (!outcome.ok || isReplay) {
-      const next: TotpRecord = {
-        secretFingerprint: existing?.secretFingerprint ?? "",
-        lastUsedStep: existing?.lastUsedStep ?? -1,
-        failCount: failCount + 1,
-        failWindowResetAt,
-      };
-      await this.ctx.storage.put(TOTP_STORAGE_KEY, next);
-      return { accepted: false };
-    }
-
-    // 成功（登録の確定 or 通常ログイン）。失敗カウンタはリセットする。
-    const next: TotpRecord = {
-      secretFingerprint: currentFingerprint,
-      lastUsedStep: outcome.step,
-      failCount: 0,
-      failWindowResetAt: now + TOTP_FAIL_WINDOW_MS,
-    };
-    await this.ctx.storage.put(TOTP_STORAGE_KEY, next);
-    return { accepted: true };
+    return this.totpGate.recordAttempt(currentFingerprint, outcome);
   }
 
   // ── 管理操作(すべて即時 broadcast) ─────────────────────────
@@ -521,12 +424,12 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   }
 
   async resetAll(): Promise<void> {
-    // ★ブランド設定（ロゴ）は集計とは無関係なので、ここでは触らない。
-    // 「全リセット」は投票結果の初期化であって、主催者が登録した
-    // ブランディングまで消してしまう操作ではない。TOTP の登録状態
-    // （TOTP_STORAGE_KEY）も同じ理由でここでは一切触れない
-    // （this.state のみを差し替える。ブランド設定と同じキー分離のおかげで、
-    // 変更不要のまま安全なのを確認済み）。
+    // ★ブランド設定（ロゴ、brandLogoStore）は集計とは無関係なので、
+    // ここでは触らない。「全リセット」は投票結果の初期化であって、主催者が
+    // 登録したブランディングまで消してしまう操作ではない。TOTP の登録状態
+    // （totpGate）も同じ理由でここでは一切触れない（this.state のみを
+    // 差し替える。ブランド設定・TOTPをそれぞれ別モジュール・別ストレージ
+    // キーに分離してあるおかげで、変更不要のまま安全なのを確認済み）。
     this.state = applyResetAll(this.state);
     this.broadcastNow(this.state);
   }
@@ -638,25 +541,24 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   }
 
   // ── ブランド設定（別ストレージキー。SSE 配信には載せない） ─────────
+  // 実体は lib/session/brand-storage.ts の BrandLogoStore に切り出して
+  // ある。ここは RPC として公開するための薄い委譲だけを持つ（TOTP と同じ
+  // 理由 ── DO RPC は SessionDO 自身のメソッドしか呼べない）。
 
   async getBrandLogo(): Promise<BrandLogo | null> {
-    const raw = await this.ctx.storage.get<unknown>(BRAND_LOGO_STORAGE_KEY);
-    return isBrandLogo(raw) ? raw : null;
+    return this.brandLogoStore.get();
   }
 
   /** ヘッダー表示側は画像バイト列そのものは要らないので、軽量版を用意する。 */
   async getBrandLogoMeta(): Promise<BrandLogoMeta | null> {
-    const logo = await this.getBrandLogo();
-    if (!logo) return null;
-    return { mime: logo.mime, updatedAt: logo.updatedAt };
+    return this.brandLogoStore.getMeta();
   }
 
   async setBrandLogo(bytes: Uint8Array, mime: BrandLogoMime): Promise<void> {
-    const logo: BrandLogo = { bytes, mime, updatedAt: Date.now() };
-    await this.ctx.storage.put(BRAND_LOGO_STORAGE_KEY, logo);
+    await this.brandLogoStore.set(bytes, mime);
   }
 
   async clearBrandLogo(): Promise<void> {
-    await this.ctx.storage.delete(BRAND_LOGO_STORAGE_KEY);
+    await this.brandLogoStore.clear();
   }
 }

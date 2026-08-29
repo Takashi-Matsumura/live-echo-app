@@ -1,20 +1,19 @@
-import { isAdmin, refreshAdminSession } from "@/lib/auth/admin";
+import { requireAdminApi } from "@/lib/auth/admin";
+import { formatDateStamp } from "@/lib/format";
 import { toResultsCsv } from "@/lib/questions/results-export";
 import { getQuestions, getRawState } from "@/lib/session/service";
 
 /**
  * アンケート結果（生の回答データ）を CSV でダウンロードさせる。
  * app/api/admin/questions/export/route.ts（設問定義のエクスポート）と
- * 同じ「Server Action ではなく Route Handler」「isAdmin() での自前チェック」
- * パターン。あちらと違いこちらは回答という利用者データを含むため、CSV の
- * 先頭に UTF-8 BOM を付けて Excel（日本語ロケール）でも文字化けしないよう
- * にする。
+ * 同じ「Server Action ではなく Route Handler」「requireAdminApi() での
+ * 自前チェック」パターン。あちらと違いこちらは回答という利用者データを
+ * 含むため、CSV の先頭に UTF-8 BOM を付けて Excel（日本語ロケール）でも
+ * 文字化けしないようにする。
  */
 export async function GET() {
-  if (!(await isAdmin())) {
-    return new Response(null, { status: 401 });
-  }
-  await refreshAdminSession();
+  const denied = await requireAdminApi();
+  if (denied) return denied;
 
   const [questions, state] = await Promise.all([getQuestions(), getRawState()]);
   const csv = toResultsCsv(questions, state);
@@ -30,11 +29,4 @@ export async function GET() {
       "X-Content-Type-Options": "nosniff",
     },
   });
-}
-
-function formatDateStamp(date: Date): string {
-  const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(date.getUTCDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
 }

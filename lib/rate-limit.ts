@@ -5,7 +5,7 @@
  * 将来 Durable Object に移す際は、この Map を DO のインスタンスフィールドに
  * すればそのまま使える）。
  */
-export type RateLimitBucket = { count: number; resetAt: number };
+type RateLimitBucket = { count: number; resetAt: number };
 export type RateLimitBuckets = Map<string, RateLimitBucket>;
 
 /** limit 回/windowMs を超えたら false を返す */
