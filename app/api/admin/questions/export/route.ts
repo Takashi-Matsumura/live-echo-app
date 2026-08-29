@@ -1,4 +1,5 @@
-import { isAdmin, refreshAdminSession } from "@/lib/auth/admin";
+import { requireAdminApi } from "@/lib/auth/admin";
+import { formatDateStamp } from "@/lib/format";
 import { toExportPayload } from "@/lib/questions/transfer";
 import { getQuestions } from "@/lib/session/service";
 
@@ -7,17 +8,15 @@ import { getQuestions } from "@/lib/session/service";
  * ダウンロードさせる。このリポジトリで初の「管理者専用 API route」。
  * Server Component の requireAdmin（redirect）も Server Action の
  * assertAdmin（throw）もファイルダウンロードの応答形には合わないため、
- * ここは isAdmin() で 401 を返す自前チェックにする。
+ * ここは requireAdminApi() で 401 を返す自前チェックにする。
  *
  * Content-Disposition を使いたいので Server Action（JSON 文字列を返して
  * クライアント側で Blob 化する方式）ではなく Route Handler にした。
  * app/api/brand/logo/route.ts と同じ「Response を直接組み立てる」パターン。
  */
 export async function GET() {
-  if (!(await isAdmin())) {
-    return new Response(null, { status: 401 });
-  }
-  await refreshAdminSession();
+  const denied = await requireAdminApi();
+  if (denied) return denied;
 
   const questions = await getQuestions();
   const now = new Date();
@@ -38,11 +37,4 @@ export async function GET() {
       "X-Content-Type-Options": "nosniff",
     },
   });
-}
-
-function formatDateStamp(date: Date): string {
-  const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(date.getUTCDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
 }

@@ -30,7 +30,7 @@ function isWebp(bytes: Uint8Array): boolean {
  * 信用しない — 中身を見て判定する。
  * SVG はここでは判定しない（スクリプトを含みうるため意図的に非対応）。
  */
-export function sniffImageMime(bytes: Uint8Array): BrandLogoMime | null {
+function sniffImageMime(bytes: Uint8Array): BrandLogoMime | null {
   if (startsWith(bytes, PNG_MAGIC)) return "image/png";
   if (startsWith(bytes, JPEG_MAGIC)) return "image/jpeg";
   if (isWebp(bytes)) return "image/webp";

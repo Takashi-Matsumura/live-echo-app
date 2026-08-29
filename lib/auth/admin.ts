@@ -136,6 +136,23 @@ export async function requireAdmin(): Promise<void> {
 }
 
 /**
+ * 管理者専用 Route Handler 用。Server Component の requireAdmin()（redirect）
+ * も Server Action の assertAdmin()（throw）もファイルダウンロード等の
+ * レスポンス形には合わないため、ここだけ「未認証なら 401 の Response を
+ * 返す」形にしてある（app/api/admin/questions/export/route.ts,
+ * app/api/admin/results/export/route.ts, app/api/admin/connections/route.ts
+ * が同じ形のガードを重複して持っていたのをここに統一した）。
+ *
+ * 使い方: `const denied = await requireAdminApi(); if (denied) return denied;`
+ * null が返れば認証済み（副作用として refreshAdminSession() 済み）。
+ */
+export async function requireAdminApi(): Promise<Response | null> {
+  if (!(await isAdmin())) return new Response(null, { status: 401 });
+  await refreshAdminSession();
+  return null;
+}
+
+/**
  * /api/stream・/api/state の role 決定に使う。
  *
  * ★重要: le_admin Cookie は path: "/" なので、講師が管理画面にログイン
