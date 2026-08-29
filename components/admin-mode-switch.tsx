@@ -14,7 +14,7 @@ const OPTIONS: { readonly id: AdminMode; readonly label: string }[] = [
  * components/admin-tabs.tsx 側で useAdminMode() を見て出し分ける）。
  *
  * role="radiogroup" の自作セグメンテッドコントロール。
- * components/admin-console.tsx の ToggleButton は on/off の2状態切替用
+ * components/toggle-button.tsx の ToggleButton は on/off の2状態切替用
  * なのでここでは流用しない（意味が違う）が、配色語彙は合わせてある。
  */
 export function AdminModeSwitch() {
