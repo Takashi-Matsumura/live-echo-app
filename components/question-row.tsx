@@ -1,6 +1,8 @@
 "use client";
 
-import { useRef, type Ref } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   deleteQuestion,
   resetQuestion,
@@ -10,7 +12,7 @@ import {
 } from "@/app/admin/actions";
 import { AdminResults } from "@/components/admin-results";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { PencilIcon, TrashIcon } from "@/components/icons";
+import { GripIcon, PencilIcon, TrashIcon } from "@/components/icons";
 import { ToggleButton } from "@/components/toggle-button";
 import { QUESTION_KIND_LABELS } from "@/lib/questions";
 import type { Phase, PublicResults, Question } from "@/lib/types";
@@ -18,7 +20,6 @@ import type { Phase, PublicResults, Question } from "@/lib/types";
 /** 設問一覧の1行。出題中の行だけ自動的に展開して操作ボタン・結果を表示し、
  *  他の行は要約のみの最小高さで並ぶ（components/admin-console.tsx から使う）。 */
 export function QuestionRow({
-  itemRef,
   index,
   question,
   isActive,
@@ -31,7 +32,6 @@ export function QuestionRow({
   onEdit,
   editable,
 }: {
-  itemRef?: Ref<HTMLLIElement>;
   index: number;
   question: Question;
   isActive: boolean;
@@ -49,15 +49,64 @@ export function QuestionRow({
 }) {
   const resetDialogRef = useRef<HTMLDialogElement>(null);
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
+  const liRef = useRef<HTMLLIElement>(null);
+
+  // 出題中になったら、パネルがスクロールしていても見える位置まで自動で
+  // スクロールする（スクロール領域は components/admin-tabs.tsx 側。
+  // scrollIntoView は最も近いスクロール可能な祖先を自動で探す）。以前は
+  // 親（admin-console.tsx）から ref を受け取っていたが、dnd-kit の
+  // setNodeRef と合成する必要が出たため、この行自身が isActive を見て
+  // 自分でスクロールする形に寄せた。
+  useEffect(() => {
+    if (isActive) liRef.current?.scrollIntoView({ block: "nearest" });
+  }, [isActive]);
+
+  // 並び替えは準備中モード（editable）限定 ── 編集・削除と同じ制約
+  // （進行中に順序が変わると参加者・投影画面の「設問 n / 総数」表示が
+  // 動くため）。ドラッグはハンドル（GripIcon）だけに attributes/listeners
+  // を付け、行全体には付けない ── 編集・削除ボタンの誤爆・ドラッグ開始を防ぐ。
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: question.id, disabled: !editable || pending });
+
+  function setRefs(node: HTMLLIElement | null) {
+    liRef.current = node;
+    setNodeRef(node);
+  }
+
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
 
   return (
     <li
-      ref={itemRef}
+      ref={setRefs}
+      style={style}
       className={`rounded-lg border ${
-        isActive ? "border-[var(--accent)]" : "border-black/10 dark:border-white/15"
-      }`}
+        isDragging ? "relative z-10 bg-[var(--background)] shadow-lg" : ""
+      } ${isActive ? "border-[var(--accent)]" : "border-black/10 dark:border-white/15"}`}
     >
       <div className="flex items-center gap-3 px-4 py-3">
+        {editable && (
+          <button
+            ref={setActivatorNodeRef}
+            type="button"
+            aria-label="ドラッグして並び替え"
+            disabled={pending}
+            className="flex h-8 w-8 shrink-0 touch-none items-center justify-center rounded-full text-black/40 disabled:opacity-50 dark:text-white/40"
+            {...attributes}
+            {...listeners}
+          >
+            <GripIcon />
+          </button>
+        )}
         {/* 設問番号を丸バッジにして視認性を上げる（旧「設問1」というテキストより
             大きく目立つ）。種別ラベルはバッジと重複しないよう「選択式」等のみ残す。 */}
         <span

@@ -151,6 +151,26 @@ export function ChevronLeftIcon() {
   );
 }
 
+/** ドラッグハンドル（六点グリップ）。塗りではなくストロークの規約に
+ *  合わせ、各点は太めの strokeWidth + strokeLinecap="round" の
+ *  ゼロ長パスで描く。 */
+export function GripIcon() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M7 5h.01M7 10h.01M7 15h.01M13 5h.01M13 10h.01M13 15h.01" />
+    </svg>
+  );
+}
+
 export function ChevronRightIcon() {
   return (
     <svg

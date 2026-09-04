@@ -203,6 +203,19 @@ export async function deleteQuestion(questionId: string): Promise<void> {
   revalidatePath("/admin");
 }
 
+/** 設問一覧のドラッグ&ドロップによる並び替え。orderedIds は並び替え後の
+ *  全設問idを新しい順序で並べたもの（components/admin-console.tsx が
+ *  楽観更新後に渡す）。 */
+export async function reorderQuestions(
+  orderedIds: readonly string[],
+): Promise<{ error?: string }> {
+  await assertAdmin();
+  const result = await service.reorderQuestions(orderedIds);
+  if (!result.ok) return { error: result.error };
+  revalidatePath("/admin");
+  return {};
+}
+
 // ── 設問のインポート ─────────────────────────────────────────
 
 export type QuestionImportState = { error?: string; imported?: number };

@@ -129,6 +129,13 @@ export async function deleteQuestion(questionId: string): Promise<void> {
   return stub.deleteQuestion(questionId);
 }
 
+export async function reorderQuestions(
+  orderedIds: readonly string[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const stub = await getSessionStub();
+  return stub.reorderQuestions(orderedIds);
+}
+
 export async function importQuestions(
   items: readonly ValidatedQuestionData[],
   mode: "append" | "replace",

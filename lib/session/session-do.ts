@@ -502,6 +502,35 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   }
 
   /**
+   * 管理画面のドラッグ&ドロップによる並び替え。orderedIds は現在の
+   * this.questions と同じ id 集合を過不足なく含んでいなければならない
+   * （別タブでの追加・削除と競合した場合はここで弾く）。ballots/
+   * activeQuestionId 等 SessionState 側は questionId で参照するだけで
+   * 配列の並びに依存しないため、mutations.ts 側の後始末は不要。
+   */
+  async reorderQuestions(
+    orderedIds: readonly string[],
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const byId = new Map(this.questions.map((q) => [q.id, q]));
+    const isValidOrder =
+      orderedIds.length === byId.size &&
+      new Set(orderedIds).size === orderedIds.length &&
+      orderedIds.every((id) => byId.has(id));
+    if (!isValidOrder) {
+      return { ok: false, error: "設問の並び順が最新の状態と一致しませんでした。" };
+    }
+
+    this.questions = orderedIds.map((id) => byId.get(id)!);
+    await this.persistQuestions();
+    // importQuestions の append と同じ理由: toPublicState の position
+    // （lib/session/projection.ts）は questions 配列の index から出るため、
+    // 並び替え後は明示的に配信し直さないと参加者・投影画面の表示が古いまま残る。
+    this.state = bumpRev(this.state);
+    this.broadcastNow(this.state);
+    return { ok: true };
+  }
+
+  /**
    * エクスポートされた設問セットの一括投入（lib/questions/transfer.ts で
    * 検証済みのデータのみ受け取る）。createQuestion をループで呼ぶと DO
    * への RPC と storage.put が N 回走るので、1回にまとめる。
