@@ -1,6 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { reorderQuestions } from "@/app/admin/actions";
 import { useAdminMode } from "@/components/admin-mode";
 import { ExportLink } from "@/components/export-link";
 import { UploadIcon, WarningIcon } from "@/components/icons";
@@ -16,7 +32,23 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   const { state } = useLiveState();
   const { mode } = useAdminMode();
   const [pending, startTransition] = useTransition();
-  const activeItemRef = useRef<HTMLLIElement>(null);
+  // ドラッグ中は questions（サーバーの確定順）とは別に楽観的な並びを持つ。
+  // questions が変わるたび（作成・編集・削除・並び替えの revalidatePath 後、
+  // つまり親のサーバーコンポーネントが新しい配列を渡してきたとき）に
+  // 同期し直す ── サーバー側の真実を上書きしたままにしない。useEffect では
+  // なくレンダー中に前回の questions と比較する（React 公式の「props の
+  // 変化に合わせて state を調整する」パターン）ことで、無駄な二度目の
+  // レンダーを避ける。
+  const [orderedQuestions, setOrderedQuestions] = useState<Question[]>(() => [...questions]);
+  const [syncedQuestions, setSyncedQuestions] = useState(questions);
+  if (questions !== syncedQuestions) {
+    setSyncedQuestions(questions);
+    setOrderedQuestions([...questions]);
+  }
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const formDialogRef = useRef<HTMLDialogElement>(null);
   // null = ダイアログを閉じている。"new" = 新規作成。Question = その設問を編集中。
   const [editing, setEditing] = useState<Question | "new" | null>(null);
@@ -38,14 +70,6 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
     });
   }
 
-  // 出題中の設問が切り替わったら、パネルがスクロールしていても見える位置まで
-  // 自動でスクロールする（スクロール領域は components/admin-tabs.tsx 側。
-  // scrollIntoView は最も近いスクロール可能な祖先を自動で探すので、
-  // 領域がどちらにあっても書き換え不要）。
-  useEffect(() => {
-    activeItemRef.current?.scrollIntoView({ block: "nearest" });
-  }, [state.question?.id]);
-
   function openCreateForm() {
     setEditing("new");
     formDialogRef.current?.showModal();
@@ -66,6 +90,22 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
   function closeImportForm() {
     importDialogRef.current?.close();
     setImportOpen(false);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = orderedQuestions.findIndex((q) => q.id === active.id);
+    const newIndex = orderedQuestions.findIndex((q) => q.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = arrayMove(orderedQuestions, oldIndex, newIndex);
+    setOrderedQuestions(reordered); // 楽観更新: サーバー応答を待たず即座に見た目を反映する
+    run(async () => {
+      const result = await reorderQuestions(reordered.map((q) => q.id));
+      // 失敗（別タブでの追加・削除との競合等）したら直前のサーバー確定順に戻す。
+      if (result.error) setOrderedQuestions([...questions]);
+    });
   }
 
   function openResetAllDialog() {
@@ -98,35 +138,45 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
           </button>
         )}
 
-        {questions.length === 0 ? (
+        {orderedQuestions.length === 0 ? (
           <p className="rounded-lg border border-dashed border-black/10 px-4 py-8 text-center text-sm text-black/50 dark:border-white/15 dark:text-white/50">
             {mode === "setup"
               ? "設問がまだ登録されていません。「新しい設問を追加」から作成してください。"
               : "設問がまだ登録されていません。「準備中」に切り替えて作成してください。"}
           </p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {questions.map((q, i) => {
-              const isActive = state.question?.id === q.id;
-              return (
-                <QuestionRow
-                  key={q.id}
-                  itemRef={isActive ? activeItemRef : undefined}
-                  index={i}
-                  question={q}
-                  isActive={isActive}
-                  pending={pending}
-                  answeredCount={state.answeredCount}
-                  phase={state.phase}
-                  revealed={state.revealed}
-                  results={state.results}
-                  run={run}
-                  onEdit={openEditForm}
-                  editable={mode === "setup"}
-                />
-              );
-            })}
-          </ul>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={orderedQuestions.map((q) => q.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="flex flex-col gap-2">
+                {orderedQuestions.map((q, i) => {
+                  const isActive = state.question?.id === q.id;
+                  return (
+                    <QuestionRow
+                      key={q.id}
+                      index={i}
+                      question={q}
+                      isActive={isActive}
+                      pending={pending}
+                      answeredCount={state.answeredCount}
+                      phase={state.phase}
+                      revealed={state.revealed}
+                      results={state.results}
+                      run={run}
+                      onEdit={openEditForm}
+                      editable={mode === "setup"}
+                    />
+                  );
+                })}
+              </ul>
+            </SortableContext>
+          </DndContext>
         )}
       </section>
 
