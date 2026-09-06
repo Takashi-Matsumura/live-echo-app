@@ -12,7 +12,7 @@ const SCALE = {
     medal: "text-sm",
     gap: "gap-3",
   },
-  // /present（投影モード）用。dataviz スキルの「バーは24px以下」という
+  // /presenter（投影モード）用。dataviz スキルの「バーは24px以下」という
   // マーク仕様は、複数系列が並ぶ通常のダッシュボードを前提にした指針。
   // ここは1画面1系列（choice）だけを大写しする「投影の主役」なので、
   // 視聴距離の長さを踏まえてあえて超える。
@@ -107,7 +107,7 @@ export function ResultBars({
   /** この設問に回答した人数。% の分母。 */
   respondents: number;
   yourAnswerIds?: readonly string[];
-  /** "large" は /present（投影モード）用。バー・文字を大きくする */
+  /** "large" は /presenter（投影モード）用。バー・文字を大きくする */
   scale?: "default" | "large";
 }) {
   const values = question.choices.map((choice) => counts[choice.id] ?? 0);

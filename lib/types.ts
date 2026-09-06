@@ -122,7 +122,7 @@ export type SessionState = {
   /** 自由記述のモデレーション: questionId -> 伏せた participantId の配列 */
   readonly hidden: Readonly<Record<string, readonly string[]>>;
   /**
-   * /present（投影画面）を、進行中の activeQuestionId とは独立に「この
+   * /presenter（投影画面）を、進行中の activeQuestionId とは独立に「この
    * 設問の結果を見せる」へ固定するための指定。null なら通常どおり
    * activeQuestionId をそのまま追従する。admin が既出の設問の結果を
    * 振り返りたいとき（例: 終盤の振り返り）に使う ── 参加者の投票フロー
@@ -180,10 +180,10 @@ export type PublicState = {
   readonly results: PublicResults | null;
   readonly position: { readonly index: number; readonly total: number } | null;
   /**
-   * /present を activeQuestionId から切り離して固定表示するための指定
+   * /presenter を activeQuestionId から切り離して固定表示するための指定
    * （SessionState.presentQuestionId 参照）。role === "admin" のときだけ
    * 非 null になりうる（participant には一切配らない）。存在すれば
-   * /present はこちらを優先して描画する。この設問はもう投票を受け付け
+   * /presenter はこちらを優先して描画する。この設問はもう投票を受け付け
    * ていない前提（現在の activeQuestionId と一致しない限り）なので、
    * closed 相当として扱ってよい。
    */

@@ -76,7 +76,7 @@ export async function setRevealed(revealed: boolean): Promise<void> {
 }
 
 /**
- * /present を進行中の設問から切り離し、指定した設問（既に回答が集まって
+ * /presenter を進行中の設問から切り離し、指定した設問（既に回答が集まって
  * いるもの）の結果を固定表示させる。null で解除してライブ追従に戻す。
  * 参加者の投票フロー（activeQuestionId・phase・revealed）には触れない。
  */
@@ -266,7 +266,7 @@ export type BrandLogoState = { error?: string };
 /** ロゴが出る全画面を再検証する */
 function revalidateBrandSurfaces(): void {
   revalidatePath("/admin");
-  revalidatePath("/present");
+  revalidatePath("/presenter");
   revalidatePath("/");
 }
 

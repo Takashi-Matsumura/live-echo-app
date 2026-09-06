@@ -109,7 +109,7 @@ export function resultsForQuestion(
 }
 
 /**
- * /present の固定表示（SessionState.presentQuestionId）を role === "admin"
+ * /presenter の固定表示（SessionState.presentQuestionId）を role === "admin"
  * にだけ配る。participant には一切見せない（そもそも関係ない情報だが、
  * 念のため他の admin 専用情報と同じ扱いに揃える）。
  *

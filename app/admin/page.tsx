@@ -58,7 +58,7 @@ export default async function AdminPage() {
               <div className="flex items-center gap-3">
                 <AdminModeSwitch />
                 <Link
-                  href="/present"
+                  href="/presenter"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-1.5 text-sm dark:border-white/15"

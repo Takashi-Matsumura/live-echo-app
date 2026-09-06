@@ -1,6 +1,6 @@
 const SCALE = {
   default: { empty: "text-sm", item: "text-sm px-4 py-3", gap: "gap-2" },
-  // /present（投影モード）用。result-bars.tsx の "large" と同じ理由で
+  // /presenter（投影モード）用。result-bars.tsx の "large" と同じ理由で
   // 通常の文字サイズ指針より大きくする（視聴距離が長いプロジェクタ投影のため）。
   // ★選択肢と違い自由記述の件数には上限が無いため、result-bars.tsx の
   // ように「最大8件」を前提にした固定サイズには収まらない。文字サイズ・
@@ -21,7 +21,7 @@ export function TextAnswerList({
   scale = "default",
 }: {
   answers: readonly { readonly id: string; readonly text: string }[];
-  /** "large" は /present（投影モード）用。文字を大きくし、親の固定高さの中でスクロールする */
+  /** "large" は /presenter（投影モード）用。文字を大きくし、親の固定高さの中でスクロールする */
   scale?: "default" | "large";
 }) {
   const sizes = SCALE[scale];
@@ -42,7 +42,7 @@ export function TextAnswerList({
           key={answer.id}
           role="listitem"
           // 背景は固定の bg-white / dark: ではなく CSS 変数で持つ。
-          // /present はシステムのカラースキームに関わらず常にダーク固定で
+          // /presenter はシステムのカラースキームに関わらず常にダーク固定で
           // --chart-* を上書きするため、Tailwind の dark: バリアントだと
           // 追従できず「白背景に白文字」になってしまう。
           className={`line-clamp-3 shrink-0 rounded-lg bg-[var(--chart-track)] leading-relaxed text-[var(--chart-text)] ${sizes.item}`}

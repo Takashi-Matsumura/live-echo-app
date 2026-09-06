@@ -15,7 +15,7 @@ export type PresentNav = {
 };
 
 /**
- * /present の「設問 X / Y」「振り返り表示」の左右アイコンで、公開済みの
+ * /presenter の「設問 X / Y」「振り返り表示」の左右アイコンで、公開済みの
  * 設問（登録順）を行き来するためのロジック。既存の presentQuestionId
  * 固定表示の仕組み（app/admin/actions.ts の setPresentQuestion）を
  * そのまま使う。components/present-screen.tsx から使う。

@@ -4,7 +4,7 @@ import { PresentNavButton } from "@/components/present-nav-button";
 import type { PresentNav } from "@/components/use-present-nav";
 
 /**
- * /present の見出し行。ラベル（「設問 X / Y」または「振り返り表示」）の
+ * /presenter の見出し行。ラベル（「設問 X / Y」または「振り返り表示」）の
  * 左右に切り替え矢印を置き、その下に設問文を出す。presentOverride の
  * 「振り返り表示」分岐と、出題中設問のライブ結果分岐の両方から使う
  * （present-screen.tsx）。「回答済み」待ち分岐（FitToViewport 側）は

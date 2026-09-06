@@ -10,7 +10,7 @@ import { useLiveState } from "@/components/live-state-provider";
 import { isChoiceLike } from "@/lib/questions";
 import type { Question } from "@/lib/types";
 
-// /present は投影用なので、システムのカラースキームに関わらず常にダーク
+// /presenter は投影用なので、システムのカラースキームに関わらず常にダーク
 // 固定にする。globals.css の @media (prefers-color-scheme: dark) には
 // 乗らない（会場が明るい部屋でも、投影機の設定が light でも関係ない）ため、
 // この div のスコープだけ CSS 変数を直接上書きする。
@@ -76,7 +76,7 @@ export function PresentScreen({
   // components/use-present-nav.ts の setPresentQuestion）のときは、
   // こちらを進行中の activeQuestionId より優先する。参加者の投票フロー
   // （question/phase/revealed/answeredCount）には一切触れない ──
-  // /present の表示だけが一時的に切り離される。
+  // /presenter の表示だけが一時的に切り離される。
   if (presentOverride) {
     const { question: pinnedQuestion, results: pinnedResults } = presentOverride;
     return (
