@@ -4,6 +4,7 @@ import { useEffect, useRef, type CSSProperties } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  clearActiveQuestion,
   deleteQuestion,
   resetQuestion,
   selectQuestion,
@@ -49,6 +50,7 @@ export function QuestionRow({
 }) {
   const resetDialogRef = useRef<HTMLDialogElement>(null);
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
+  const clearActiveDialogRef = useRef<HTMLDialogElement>(null);
   const liRef = useRef<HTMLLIElement>(null);
 
   // 出題中になったら、パネルがスクロールしていても見える位置まで自動で
@@ -153,14 +155,20 @@ export function QuestionRow({
         )}
 
         {isActive ? (
-          // ★出題中の行はボタンではなく非活性の pill にする。以前は出題中でも
+          // ★出題中の行は selectQuestion を再度呼ぶボタンにはしない。以前は
           // 同じ selectQuestion 呼び出しが残っていて、押すと
           // applySelectQuestion（lib/session/mutations.ts）が phase/revealed
           // を無条件でリセットしてしまっていた（受付締切後や結果公開後に
-          // 誤って押すと状態が巻き戻る実害のあるバグ）。ここで併せて直す。
-          <span className="shrink-0 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white">
+          // 誤って押すと状態が巻き戻る実害のあるバグ）。押すと「出題中の解除」
+          // （clearActiveQuestion）を確認するボタンにする。
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => clearActiveDialogRef.current?.showModal()}
+            className="shrink-0 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
             出題中
-          </span>
+          </button>
         ) : (
           <button
             type="button"
@@ -229,6 +237,15 @@ export function QuestionRow({
             confirmLabel="リセットする"
             pending={pending}
             onConfirm={() => run(() => resetQuestion(question.id))}
+          />
+
+          <ConfirmDialog
+            dialogRef={clearActiveDialogRef}
+            title="出題中を解除しますか？"
+            description="投影画面・参加者画面は待機表示（QRコード）に戻ります。集まった回答は消えません。"
+            confirmLabel="解除する"
+            pending={pending}
+            onConfirm={() => run(() => clearActiveQuestion())}
           />
         </div>
       )}

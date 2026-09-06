@@ -80,7 +80,8 @@ export function UploadIcon() {
   );
 }
 
-export function QrIcon() {
+/** 投影画面（スクリーンに映す）を表すアイコン。モニターとスタンド。 */
+export function PresenterIcon() {
   return (
     <svg
       viewBox="0 0 20 20"
@@ -92,8 +93,8 @@ export function QrIcon() {
       className="h-4 w-4"
       aria-hidden="true"
     >
-      <path d="M3.5 3.5h4v4h-4zM12.5 3.5h4v4h-4zM3.5 12.5h4v4h-4z" />
-      <path d="M11 11h2M11 14h.5M13.5 14h3M11 16.5h5.5" />
+      <rect x="2.5" y="4" width="15" height="10" rx="1.5" />
+      <path d="M7.5 17h5M10 14v3" />
     </svg>
   );
 }
