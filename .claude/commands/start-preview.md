@@ -4,7 +4,7 @@ description: Cloudflare Workers プレビュー（Durable Object込みの実行�
 
 `npm run preview` で Cloudflare Workers のプレビュー環境を起動してください。
 
-このアプリは投票状態・進行状態をすべて Durable Object（`SessionDO`）に持たせている。`next dev`（`/start-dev` や `npm run dev`）は Durable Object をシミュレートできず、ログインの Server Action すら失敗するため、状態が絡む画面（`/`・`/admin`・`/present`）を実際に動かして確認したいときは必ずこちらを使う。
+このアプリは投票状態・進行状態をすべて Durable Object（`SessionDO`）に持たせている。`next dev`（`/start-dev` や `npm run dev`）は Durable Object をシミュレートできず、ログインの Server Action すら失敗するため、状態が絡む画面（`/`・`/admin`・`/presenter`）を実際に動かして確認したいときは必ずこちらを使う。
 
 ## 手順
 

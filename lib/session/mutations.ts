@@ -95,7 +95,7 @@ export function applySelectQuestion(
     activeQuestionId: questionId,
     phase: "open",
     revealed: false,
-    // 新しい投票ラウンドを開始する操作なので、/present の固定表示
+    // 新しい投票ラウンドを開始する操作なので、/presenter の固定表示
     // （presentQuestionId）は自動的に解除し、ライブ追従に戻す。固定した
     // ままだと「投票を再開したのに投影は古い結果のまま」という食い違いが
     // 起きるため（この設問を再度出題した場合を含む）。
@@ -125,7 +125,7 @@ export function applySetRevealed(current: SessionState, revealed: boolean): Sess
   return commit(current, { revealed, revealedQuestionIds });
 }
 
-/** /present の固定表示先を切り替える。null で解除（ライブ追従に戻す）。 */
+/** /presenter の固定表示先を切り替える。null で解除（ライブ追従に戻す）。 */
 export function applySetPresentQuestion(
   current: SessionState,
   questionId: string | null,

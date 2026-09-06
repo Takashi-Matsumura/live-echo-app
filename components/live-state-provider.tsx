@@ -52,7 +52,7 @@ export function LiveStateProvider({
    * 講師の端末が参加者用の "/" を開くと isAdmin() は true になる。それだけを
    * role 決定の根拠にすると、参加者ページなのに非公開集計や伏せた回答まで
    * 見えてしまう（実測で確認済みのバグ）。"/" では必ず "participant"、
-   * "/admin" と "/present" では "admin" を渡す。
+   * "/admin" と "/presenter" では "admin" を渡す。
    */
   view: "participant" | "admin";
   children: ReactNode;
