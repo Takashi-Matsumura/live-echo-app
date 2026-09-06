@@ -8,6 +8,7 @@ import { TotpGate } from "@/lib/session/totp-gate";
 import {
   applyCastVote,
   applyChoicesRemoved,
+  applyClearActiveQuestion,
   applyHideAnswer,
   applyQuestionRemoved,
   applyResetAll,
@@ -420,6 +421,14 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   async resetQuestion(questionId: string): Promise<void> {
     this.state = applyResetQuestion(this.state, questionId);
+    this.broadcastNow(this.state);
+  }
+
+  /** 「出題中」を解除する。ballots 等は消さない（applyClearActiveQuestion
+   *  参照）── resetQuestion/resetAll と違い、投票データを保持したまま
+   *  出題状態だけ待機に戻すための操作。 */
+  async clearActiveQuestion(): Promise<void> {
+    this.state = applyClearActiveQuestion(this.state);
     this.broadcastNow(this.state);
   }
 

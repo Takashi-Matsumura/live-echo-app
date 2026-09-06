@@ -106,6 +106,16 @@ export async function resetQuestion(questionId: string): Promise<void> {
   await service.resetQuestion(questionId);
 }
 
+/**
+ * 「出題中」を解除し、/presenter を待機画面（QRコード表示）に戻す。
+ * resetQuestion と違い集まった回答は消さない ── 出題状態だけをいったん
+ * 空にして、後で改めて選び直せるようにするための操作。
+ */
+export async function clearActiveQuestion(): Promise<void> {
+  await assertAdmin();
+  await service.clearActiveQuestion();
+}
+
 export type ResetAllState = { error?: string };
 
 /**

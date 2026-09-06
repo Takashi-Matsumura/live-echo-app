@@ -101,6 +101,11 @@ export async function resetQuestion(questionId: string): Promise<void> {
   return stub.resetQuestion(questionId);
 }
 
+export async function clearActiveQuestion(): Promise<void> {
+  const stub = await getSessionStub();
+  return stub.clearActiveQuestion();
+}
+
 export async function resetAll(): Promise<void> {
   const stub = await getSessionStub();
   return stub.resetAll();

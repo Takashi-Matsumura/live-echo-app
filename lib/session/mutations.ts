@@ -181,6 +181,22 @@ export function applyResetQuestion(current: SessionState, questionId: string): S
   });
 }
 
+/**
+ * 「出題中」を解除し、/presenter を待機画面（QRコード表示）に戻す。
+ * resetQuestion/resetAll と違い ballots・hidden・revealedQuestionIds は
+ * 一切消さない ── 集まった回答や参加者の「過去の結果」振り返りを保った
+ * まま、「今どれを出しているか」だけを空にするための軽い操作。
+ */
+export function applyClearActiveQuestion(current: SessionState): SessionState {
+  return commit(current, {
+    activeQuestionId: null,
+    phase: "idle",
+    revealed: false,
+    // 固定表示が残ったままだと /presenter が待機画面に戻らないため解除する。
+    presentQuestionId: null,
+  });
+}
+
 export function applyResetAll(current: SessionState): SessionState {
   return commit(current, {
     activeQuestionId: null,

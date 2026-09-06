@@ -8,7 +8,7 @@ import { AdminTabs } from "@/components/admin-tabs";
 import { BrandMark } from "@/components/brand-mark";
 import { BrandSettings } from "@/components/brand-settings";
 import { LiveStateProvider } from "@/components/live-state-provider";
-import { LogoutIcon, QrIcon } from "@/components/icons";
+import { LogoutIcon, PresenterIcon } from "@/components/icons";
 import { PhonePreview } from "@/components/phone-preview";
 import { requireAdmin } from "@/lib/auth/admin";
 import { getBrandLogoMeta, getQuestions, snapshotFor } from "@/lib/session/service";
@@ -45,7 +45,7 @@ export default async function AdminPage() {
               右のスマホプレビューとの間に余白ができないよう、余った横幅は
               設問一覧側で使い切る。 */}
           <div className="flex min-h-0 min-w-0 flex-col gap-6">
-            {/* タブ切り替えに関係なく常時表示する操作。モード切替・QRコード
+            {/* タブ切り替えに関係なく常時表示する操作。モード切替・投影画面
                 表示・ログアウトはどちらのタブを見ていても必要なので、
                 タブの外に置く。スクロール領域の外なので、下の一覧を
                 どれだけスクロールしても常に見える。
@@ -63,8 +63,8 @@ export default async function AdminPage() {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-full border border-black/10 px-4 py-1.5 text-sm dark:border-white/15"
                 >
-                  <QrIcon />
-                  QRコード
+                  <PresenterIcon />
+                  投影画面
                 </Link>
                 <form action={logout}>
                   <button
