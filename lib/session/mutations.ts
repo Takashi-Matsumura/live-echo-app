@@ -125,6 +125,22 @@ export function applySetRevealed(current: SessionState, revealed: boolean): Sess
   return commit(current, { revealed, revealedQuestionIds });
 }
 
+/**
+ * 講師の「資料を全員に公開」トグル。回答有無を問わず全参加者へ資料を
+ * 解放する（lib/session/projection.ts の materialsFor 参照）。
+ * ★出題・設問リセット等の他の apply では一切触らない ── 資料の全体公開は
+ * 設問単位ではなくセッション全体にまたがる状態なので、設問操作のたびに
+ * 巻き戻ると講師から見て「なぜ資料が消えたか分からない」事故になる。
+ * 明示的にこのトグルを操作したときだけ変わる（resetAll だけは例外。
+ * applyResetAll 参照）。
+ */
+export function applySetMaterialsRevealed(
+  current: SessionState,
+  revealed: boolean,
+): SessionState {
+  return commit(current, { materialsRevealed: revealed });
+}
+
 /** /presenter の固定表示先を切り替える。null で解除（ライブ追従に戻す）。 */
 export function applySetPresentQuestion(
   current: SessionState,
@@ -206,6 +222,13 @@ export function applyResetAll(current: SessionState): SessionState {
     hidden: {},
     presentQuestionId: null,
     revealedQuestionIds: [],
+    // 回答（ballots）を全消去する以上、資料のゲート解放も無効になるので
+    // 「全員に公開」フラグも false に戻す ── そうしないと回答済みの証拠が
+    // 消えたのに公開状態だけ残り、講師の意図と食い違う。ただし資料の
+    // 設定（URL・見出し・gateQuestionId）自体は MaterialsStore にあり、
+    // ブランド設定と同じく resetAll では一切触らない（「回答と進行状態を
+    // リセット」という名前どおり、設定ではなく進行状態だけを戻す）。
+    materialsRevealed: false,
   });
 }
 

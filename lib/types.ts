@@ -138,6 +138,15 @@ export type SessionState = {
    * （公開を取り消しても消えない。取り消したいときは resetQuestion を使う）。
    */
   readonly revealedQuestionIds: readonly string[];
+  /**
+   * 講師が「資料を全員に公開」を押したかどうか。true なら
+   * MaterialsConfig.gateQuestionId への回答有無を問わず全参加者に資料を
+   * 解放する（lib/session/projection.ts の materialsFor 参照）。
+   * boolean 1個だけなので SessionState に置いても配信コストは無視できる
+   * （Materials 本体 = URL は別ストレージキーに置く。本ファイル末尾の
+   * コメント参照）。
+   */
+  readonly materialsRevealed: boolean;
   readonly updatedAt: number;
 };
 
@@ -197,6 +206,15 @@ export type PublicState = {
    * に無い questionId は 404 になり、公開していない結果は取得できない）。
    */
   readonly pastQuestions: readonly { readonly id: string; readonly prompt: string }[];
+  /**
+   * 講師が資料を全員に公開したかどうか（SessionState.materialsRevealed の
+   * パススルー）。★MaterialsConfig の url / label / gateQuestionId は
+   * ここには一切含めない ── 未解放の参加者に配ってはいけない情報なので
+   * （projection.ts 冒頭の原則と同じ）、実際の資料は
+   * GET /api/materials を別途叩かせ、そちらでサーバー側のゲート
+   * （lib/session/projection.ts の materialsFor）を再検証する。
+   */
+  readonly materialsRevealed: boolean;
 };
 
 export type PersonalState = {
@@ -236,3 +254,22 @@ export type BrandLogoMeta = Omit<BrandLogo, "bytes">;
 export type VoteResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: "closed" | "stale" | "invalid" | "too-long" | "rate-limited" };
+
+// ── 研修資料（SessionState とは別のストレージキーに保存する） ──────────
+// ブランド設定と同じ理由で SessionState の外に置く。SessionState は投票の
+// たびに全接続へブロードキャストされるため（lib/session/session-do.ts の
+// publish()）、URL のような低頻度の設定値をそこに含めると無駄が出る。
+// 講師の「全員に公開」フラグ（SessionState.materialsRevealed）だけは
+// boolean 1個なのでブロードキャストに乗せてよい、という非対称な扱い。
+
+export type MaterialsConfig = {
+  /** https のみ（lib/materials/validate.ts が検証）。javascript: / data:
+   *  を <a href> と QR の両方から構造的に排除するため。 */
+  readonly url: string;
+  /** 画面に出す見出し。空文字列は「見出しなし」として null に正規化する */
+  readonly label: string | null;
+  /** この設問に回答すると本人だけ解放される。null なら講師の「全員に
+   *  公開」操作でのみ解放される（lib/session/projection.ts の
+   *  materialsFor 参照）。 */
+  readonly gateQuestionId: string | null;
+};

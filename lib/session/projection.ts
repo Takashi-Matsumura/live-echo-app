@@ -1,6 +1,7 @@
 import { answerText, getQuestionById, getQuestionIndex, isChoiceLike, selectedChoiceIds } from "@/lib/questions";
 import type {
   Ballot,
+  MaterialsConfig,
   PublicResults,
   PublicState,
   Question,
@@ -57,6 +58,7 @@ export function toPublicState(
     position,
     presentOverride: buildPresentOverride(state, questions, role),
     pastQuestions: buildPastQuestions(state, questions),
+    materialsRevealed: state.materialsRevealed,
   };
 }
 
@@ -106,6 +108,44 @@ export function resultsForQuestion(
   const ballots = state.ballots[question.id] ?? {};
   const hiddenIds = state.hidden[question.id] ?? [];
   return { question, results: buildResults(question, ballots, hiddenIds, role) };
+}
+
+/**
+ * ★研修資料（MaterialsConfig）を実際にサーバから出してよいかを判定する
+ * 唯一のゲート（GET /api/materials ルートハンドラ専用）。URL がクライアント
+ * に渡る経路はここだけ ── PublicState.materialsRevealed は「講師が全体
+ * 公開したか」という boolean だけを配り、URL 本体はこの関数を通った
+ * ときにしか出さない（projection.ts 冒頭の原則: 結果開示と同じく、UI 側の
+ * if では絶対に済ませない）。
+ *
+ * 判定順:
+ *   1. config が無ければ（資料未設定）null
+ *   2. role === "admin" なら常に返す（/presenter・管理画面用。
+ *      resolveRole が view=participant を一方向降格させるので、講師の
+ *      端末が participant 用の "/" を明示的に開いたときはここを通らない
+ *      ── buildPresentOverride と同じ保護）
+ *   3. 講師が「全員に公開」していれば返す
+ *   4. gateQuestionId が設定されていて、その設問に本人が回答済みなら返す
+ *   5. それ以外は null
+ *
+ * gateQuestionId が指す設問が削除されていても、state.ballots からも
+ * その questionId のエントリごと消えている（applyQuestionRemoved 参照）ため
+ * ballots[gateQuestionId] は必ず undefined になり、自動的に fail-closed
+ * になる（明示的な存在チェックは不要）。
+ */
+export function materialsFor(
+  state: SessionState,
+  config: MaterialsConfig | null,
+  participantId: string,
+  role: Role,
+): MaterialsConfig | null {
+  if (!config) return null;
+  if (role === "admin") return config;
+  if (state.materialsRevealed) return config;
+  if (config.gateQuestionId && state.ballots[config.gateQuestionId]?.[participantId]) {
+    return config;
+  }
+  return null;
 }
 
 /**

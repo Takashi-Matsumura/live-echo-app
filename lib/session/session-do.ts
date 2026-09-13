@@ -2,8 +2,9 @@ import { DurableObject } from "cloudflare:workers";
 import { isChoiceLike, MAX_QUESTIONS } from "@/lib/questions";
 import { BrandLogoStore } from "@/lib/session/brand-storage";
 import { SESSION_FULL_ERROR } from "@/lib/session/errors";
+import { MaterialsStore } from "@/lib/session/materials-storage";
 import { sanitizePersistedQuestions, sanitizePersistedState } from "@/lib/session/sanitize";
-import { resultsForQuestion, toPublicState } from "@/lib/session/projection";
+import { materialsFor, resultsForQuestion, toPublicState } from "@/lib/session/projection";
 import { TotpGate } from "@/lib/session/totp-gate";
 import {
   applyCastVote,
@@ -14,6 +15,7 @@ import {
   applyResetAll,
   applyResetQuestion,
   applySelectQuestion,
+  applySetMaterialsRevealed,
   applySetPhase,
   applySetPresentQuestion,
   applySetRevealed,
@@ -26,6 +28,7 @@ import type {
   BrandLogo,
   BrandLogoMeta,
   BrandLogoMime,
+  MaterialsConfig,
   Phase,
   PersonalState,
   PublicResults,
@@ -77,6 +80,7 @@ function initialState(): SessionState {
     hidden: {},
     presentQuestionId: null,
     revealedQuestionIds: [],
+    materialsRevealed: false,
     updatedAt: Date.now(),
   };
 }
@@ -108,11 +112,13 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   private adminSessionGen = 0;
   private readonly totpGate: TotpGate;
   private readonly brandLogoStore: BrandLogoStore;
+  private readonly materialsStore: MaterialsStore;
 
   constructor(ctx: DurableObjectState, env: CloudflareEnv) {
     super(ctx, env);
     this.totpGate = new TotpGate(ctx.storage);
     this.brandLogoStore = new BrandLogoStore(ctx.storage);
+    this.materialsStore = new MaterialsStore(ctx.storage);
     // コンストラクタ完了まで他の呼び出しはキューイングされるため、
     // 各メソッド側で復元完了を個別に待つ必要はない。
     ctx.blockConcurrencyWhile(async () => {
@@ -439,6 +445,12 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     // （totpGate）も同じ理由でここでは一切触れない（this.state のみを
     // 差し替える。ブランド設定・TOTPをそれぞれ別モジュール・別ストレージ
     // キーに分離してあるおかげで、変更不要のまま安全なのを確認済み）。
+    // 研修資料（materialsStore）も同じ扱い ── URL・見出し・
+    // gateQuestionId という「設定」はここでは消さない。一方
+    // materialsRevealed（「全員に公開」フラグ）は SessionState 側の
+    // 進行状態なので、applyResetAll が ballots と一緒に false へ戻す
+    // （「回答と進行状態をリセット」という名前どおり、設定は残り進行
+    // 状態だけ戻るという非対称を意図している）。
     this.state = applyResetAll(this.state);
     this.broadcastNow(this.state);
   }
@@ -598,5 +610,35 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   async clearBrandLogo(): Promise<void> {
     await this.brandLogoStore.clear();
+  }
+
+  // ── 研修資料（別ストレージキー。SSE 配信には URL を載せない） ────────
+  // 実体は lib/session/materials-storage.ts の MaterialsStore に切り出して
+  // ある。ブランド設定・TOTP と同じ理由（DO RPC は SessionDO 自身の
+  // メソッドしか呼べない）で薄い委譲だけを持つ。
+
+  /** 管理画面の設定タブ用（ゲート無し。呼び出し元がすでに認可済み）。 */
+  async getMaterials(): Promise<MaterialsConfig | null> {
+    return this.materialsStore.get();
+  }
+
+  async setMaterials(config: MaterialsConfig): Promise<void> {
+    await this.materialsStore.set(config);
+  }
+
+  async clearMaterials(): Promise<void> {
+    await this.materialsStore.clear();
+  }
+
+  /** GET /api/materials 専用。materialsFor（lib/session/projection.ts）が
+   *  唯一のゲート。 */
+  async getMaterialsFor(participantId: string, role: Role): Promise<MaterialsConfig | null> {
+    const config = await this.materialsStore.get();
+    return materialsFor(this.state, config, participantId, role);
+  }
+
+  async setMaterialsRevealed(revealed: boolean): Promise<void> {
+    this.state = applySetMaterialsRevealed(this.state, revealed);
+    this.broadcastNow(this.state);
   }
 }

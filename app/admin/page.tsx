@@ -9,9 +9,10 @@ import { BrandMark } from "@/components/brand-mark";
 import { BrandSettings } from "@/components/brand-settings";
 import { LiveStateProvider } from "@/components/live-state-provider";
 import { LogoutIcon, PresenterIcon } from "@/components/icons";
+import { MaterialsSettings } from "@/components/materials-settings";
 import { PhonePreview } from "@/components/phone-preview";
 import { requireAdmin } from "@/lib/auth/admin";
-import { getBrandLogoMeta, getQuestions, snapshotFor } from "@/lib/session/service";
+import { getBrandLogoMeta, getMaterials, getQuestions, snapshotFor } from "@/lib/session/service";
 
 export const metadata: Metadata = {
   title: "管理画面",
@@ -19,10 +20,11 @@ export const metadata: Metadata = {
 
 export default async function AdminPage() {
   await requireAdmin();
-  const [state, logoMeta, questions] = await Promise.all([
+  const [state, logoMeta, questions, materials] = await Promise.all([
     snapshotFor("admin"),
     getBrandLogoMeta(),
     getQuestions(),
+    getMaterials(),
   ]);
 
   // 出題中の設問があれば「進行中」、無ければ「準備中」で開く（初回訪問時、
@@ -85,12 +87,13 @@ export default async function AdminPage() {
                   initialYou={{ questionId: null, myAnswer: null }}
                   view="admin"
                 >
-                  <AdminConsole questions={questions} />
+                  <AdminConsole questions={questions} materialsConfigured={materials !== null} />
                 </LiveStateProvider>
               }
               brandPanel={
                 <BrandSettings hasLogo={logoMeta !== null} preview={<BrandMark size="md" />} />
               }
+              materialsPanel={<MaterialsSettings config={materials} questions={questions} />}
             />
           </div>
 

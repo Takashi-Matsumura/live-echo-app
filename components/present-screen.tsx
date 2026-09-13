@@ -7,6 +7,7 @@ import { ResultBars } from "@/components/result-bars";
 import { TextAnswerList } from "@/components/text-answer-list";
 import { usePresentNav } from "@/components/use-present-nav";
 import { useLiveState } from "@/components/live-state-provider";
+import { useMaterials } from "@/components/use-materials";
 import { isChoiceLike } from "@/lib/questions";
 import type { Question } from "@/lib/types";
 
@@ -43,6 +44,14 @@ export function PresentScreen({
   const { state } = useLiveState();
   const { question, phase, revealed, answeredCount, results, position, presentOverride } = state;
   const nav = usePresentNav(state, questions);
+  // view="admin": /presenter は requireAdmin() を通った端末専用の画面。
+  // materialsFor（lib/session/projection.ts）は role === "admin" に無条件で
+  // 資料を返すため、実際に画面へ出すかどうかは下の showIdle 分岐にある
+  // state.materialsRevealed という UI 側の if で決める。projection.ts
+  // 冒頭の原則（「UI で if(revealed) にするな」）に反するように見えるが、
+  // あちらの境界は「参加者に非公開データを配るな」であり、ここは講師自身が
+  // 入力した URL を講師の画面に出すだけなので抵触しない。
+  const materials = useMaterials("admin");
 
   useEffect(() => {
     // スリープ抑止。対応ブラウザ（iOS Safari 16.4+ 等）でのみ効く。
@@ -112,7 +121,29 @@ export function PresentScreen({
 
   return (
     <div style={DARK_CHART_VARS} className={rootClassName}>
-      {showIdle ? (
+      {showIdle && state.materialsRevealed && materials ? (
+        // 研修の終わり方（「出題中を解除」→ ここに落ちる）にそのまま乗る。
+        // 終了時に参加用 QR（qrPanel）を出し続けるのは無意味なので、
+        // 講師が資料を公開したあとは資料 QR に置き換える。
+        <FitToViewport>
+          <div className="flex flex-col items-center gap-10 px-8 py-12 text-center">
+            <h1 className="text-[clamp(2rem,4.5vw,4rem)] font-semibold">
+              {materials.label ?? "研修資料"}
+            </h1>
+            <div className="flex flex-col items-center gap-6">
+              <div
+                className="rounded-2xl bg-white p-6 shadow-[0_8px_32px_rgba(0,0,0,0.35)] [&>svg]:h-[clamp(16rem,30vw,26rem)] [&>svg]:w-[clamp(16rem,30vw,26rem)]"
+                // svg はサーバー側（app/api/materials/route.ts）が renderQrSvg
+                // で自前生成した文字列（lib/qr.ts 参照。escapeAttr 済み）。
+                dangerouslySetInnerHTML={{ __html: materials.qrSvg }}
+              />
+              <p className="break-all text-center text-[clamp(1.25rem,2vw,1.75rem)] font-medium tracking-wide text-white">
+                {materials.url}
+              </p>
+            </div>
+          </div>
+        </FitToViewport>
+      ) : showIdle ? (
         <FitToViewport>
           <div className="flex flex-col items-center gap-10 px-8 py-12 text-center">
             <h1 className="text-[clamp(2rem,4.5vw,4rem)] font-semibold">

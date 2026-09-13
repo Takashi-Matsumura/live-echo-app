@@ -10,6 +10,7 @@ import {
   revokeAllAdminSessions,
 } from "@/lib/auth/admin";
 import { validateLogoFile } from "@/lib/brand/validate";
+import { validateMaterialsInput } from "@/lib/materials/validate";
 import { renderQrSvg } from "@/lib/qr";
 import { DEFAULT_TEXT_MAX_LENGTH, validateQuestionDraft } from "@/lib/questions";
 import { MAX_IMPORT_BYTES, parseQuestionsImport } from "@/lib/questions/transfer";
@@ -73,6 +74,12 @@ export async function setPhase(phase: "open" | "closed"): Promise<void> {
 export async function setRevealed(revealed: boolean): Promise<void> {
   await assertAdmin();
   await service.setRevealed(revealed);
+}
+
+/** 研修資料を回答有無を問わず全参加者に公開する／取り消す。 */
+export async function setMaterialsRevealed(revealed: boolean): Promise<void> {
+  await assertAdmin();
+  await service.setMaterialsRevealed(revealed);
 }
 
 /**
@@ -305,4 +312,38 @@ export async function removeBrandLogo(): Promise<void> {
   await assertAdmin();
   await service.clearBrandLogo();
   revalidateBrandSurfaces();
+}
+
+// ── 資料設定 ─────────────────────────────────────────────────
+
+export type MaterialsFormState = { error?: string };
+
+export async function saveMaterials(
+  _prevState: MaterialsFormState,
+  formData: FormData,
+): Promise<MaterialsFormState> {
+  await assertAdmin();
+
+  const url = String(formData.get("url") ?? "");
+  const label = String(formData.get("label") ?? "");
+  const gateQuestionId = String(formData.get("gateQuestionId") ?? "");
+
+  const questions = await service.getQuestions();
+  const validated = validateMaterialsInput(url, label, gateQuestionId, questions);
+  if (!validated.ok) return { error: validated.error };
+
+  await service.setMaterials(validated.data);
+  revalidatePath("/admin");
+  return {};
+}
+
+/**
+ * 資料設定を削除する。URL を消したのに「全員に公開」フラグだけが
+ * 立ち続けるのを防ぐため、公開フラグも合わせて false に戻す。
+ */
+export async function removeMaterials(): Promise<void> {
+  await assertAdmin();
+  await service.clearMaterials();
+  await service.setMaterialsRevealed(false);
+  revalidatePath("/admin");
 }
