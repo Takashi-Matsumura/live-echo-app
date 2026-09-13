@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { env } from "@/lib/env";
-import { renderQrSvg, type QrLogo } from "@/lib/qr";
-import { getBrandLogo } from "@/lib/session/service";
+import { renderQrSvg } from "@/lib/qr";
+import { resolveQrLogo } from "@/lib/qr-logo";
 
 /**
  * リクエストの Host ヘッダーから QR の URL を組み立てる。
@@ -17,18 +17,6 @@ async function resolveBaseUrl(): Promise<string> {
   const host = h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "https";
   return `${proto}://${host}`;
-}
-
-/**
- * 会社ロゴが登録されていれば、QR に埋め込む用の data URI に変換する。
- * サーバー側で自己完結させる（外部URL参照にすると、投影中に一瞬ロゴ抜けの
- * QR が出てしまうため）。nodejs_compat が有効なので Buffer が使える。
- */
-async function resolveQrLogo(): Promise<QrLogo | null> {
-  const logo = await getBrandLogo();
-  if (!logo) return null;
-  const base64 = Buffer.from(logo.bytes).toString("base64");
-  return { dataUri: `data:${logo.mime};base64,${base64}` };
 }
 
 /**

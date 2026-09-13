@@ -3,17 +3,18 @@
 import { useState, type ReactNode } from "react";
 import { useAdminMode } from "@/components/admin-mode";
 
-type Tab = "questions" | "brand";
+type Tab = "questions" | "brand" | "materials";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "questions", label: "設問一覧" },
-  { id: "brand", label: "ブランド設定" },
+const TABS: { id: Tab; label: string; setupOnly: boolean }[] = [
+  { id: "questions", label: "設問一覧", setupOnly: false },
+  { id: "brand", label: "ブランド設定", setupOnly: true },
+  { id: "materials", label: "資料設定", setupOnly: true },
 ];
 
 /**
- * 「設問一覧」と「ブランド設定」のタブ切り替え。
+ * 「設問一覧」「ブランド設定」「資料設定」のタブ切り替え。
  *
- * ★両パネルは常にマウントしたまま hidden 属性で見た目だけ切り替える
+ * ★すべてのパネルは常にマウントしたまま hidden 属性で見た目だけ切り替える
  * （条件付きレンダーで questionsPanel をアンマウントしない）。questionsPanel
  * の中身は LiveStateProvider を含み、そのクリーンアップは EventSource を
  * close する（components/live-state-provider.tsx）。タブ切り替えのたびに
@@ -22,10 +23,10 @@ const TABS: { id: Tab; label: string }[] = [
  *
  * タブパネルの <div> 自体には flex/grid 等の display ユーティリティを付けない
  * — [hidden]{display:none} という UA 既定スタイルとの特異性衝突を避けるため。
- * 必要なレイアウトは questionsPanel/brandPanel（中身）側で組む。
+ * 必要なレイアウトは各パネル（中身）側で組む。
  *
  * 呼び出し側は qr-panel.tsx を present-screen.tsx に渡すのと同じ
- * server-in-client の受け渡しパターンで questionsPanel/brandPanel を渡す
+ * server-in-client の受け渡しパターンで各パネルを渡す
  * （app/admin/page.tsx 参照）。
  *
  * ★スクロール領域はここ（タブ本体の下）だけに区切る。タブの切り替えボタン
@@ -33,26 +34,34 @@ const TABS: { id: Tab; label: string }[] = [
  * min-h-0 + overflow-y-auto で縦スクロールする。呼び出し元（app/admin/page.tsx）
  * がページ全体の高さを viewport に固定している前提。
  *
- * ★「ブランド設定」タブは進行中モードでは非表示にする（本番進行中に
- * ロゴの差し替え・削除に迷い込ませない）。進行中モードに切り替えた瞬間に
- * ブランド設定タブを見ていた場合は、空にならないよう設問一覧タブとして
- * 描画する。tab state 自体は「ブランド設定を最後に選んでいた」ことを
- * 覚えたままにし（準備中に戻せば復元される）、表示にだけ effectiveTab
- * という派生値をかませる ── useEffect + setState でモード変化のたびに
- * tab を書き換えると react-hooks/set-state-in-effect に引っかかるため。
+ * ★setupOnly なタブ（ブランド設定・資料設定）は進行中モードでは非表示に
+ * する（本番進行中にロゴ・資料URLの差し替え・削除に迷い込ませない）。
+ * 進行中モードに切り替えた瞬間に setupOnly タブを見ていた場合は、
+ * 空にならないよう設問一覧タブとして描画する。tab state 自体は
+ * 「最後に選んでいたタブ」を覚えたままにし（準備中に戻せば復元される）、
+ * 表示にだけ effectiveTab という派生値をかませる ── useEffect + setState
+ * でモード変化のたびに tab を書き換えると react-hooks/set-state-in-effect
+ * に引っかかるため。
  */
 export function AdminTabs({
   questionsPanel,
   brandPanel,
+  materialsPanel,
 }: {
   questionsPanel: ReactNode;
   brandPanel: ReactNode;
+  materialsPanel: ReactNode;
 }) {
   const { mode } = useAdminMode();
   const [tab, setTab] = useState<Tab>("questions");
-  const visibleTabs = mode === "live" ? TABS.filter((t) => t.id === "questions") : TABS;
-  const effectiveTab: Tab = mode === "live" && tab === "brand" ? "questions" : tab;
-  const panels: Record<Tab, ReactNode> = { questions: questionsPanel, brand: brandPanel };
+  const visibleTabs = mode === "live" ? TABS.filter((t) => !t.setupOnly) : TABS;
+  const currentTabSetupOnly = TABS.find((t) => t.id === tab)?.setupOnly ?? false;
+  const effectiveTab: Tab = mode === "live" && currentTabSetupOnly ? "questions" : tab;
+  const panels: Record<Tab, ReactNode> = {
+    questions: questionsPanel,
+    brand: brandPanel,
+    materials: materialsPanel,
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">

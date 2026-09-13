@@ -2,11 +2,13 @@
 
 import { useRef, useState } from "react";
 import { ChoiceVoteForm } from "@/components/choice-vote-form";
+import { MaterialsPanel } from "@/components/materials-panel";
 import { MultiVoteForm } from "@/components/multi-vote-form";
 import { TextVoteForm } from "@/components/text-vote-form";
 import { ResultBars } from "@/components/result-bars";
 import { TextAnswerList } from "@/components/text-answer-list";
 import { useLiveState } from "@/components/live-state-provider";
+import { useMaterials } from "@/components/use-materials";
 import { isChoiceLike, selectedChoiceIds } from "@/lib/questions";
 import type { PublicResults, Question } from "@/lib/types";
 
@@ -31,6 +33,7 @@ async function fetchPastResult(questionId: string): Promise<PastResult | null> {
 export function ParticipantScreen() {
   const { state, you } = useLiveState();
   const { question, phase, revealed, answeredCount, results, position, pastQuestions } = state;
+  const materials = useMaterials("participant");
 
   // null = 通常のライブ画面。文字列なら「過去の結果」一覧の中でその
   // questionId を開いている状態（一覧自体は常時 pastQuestions から出す
@@ -151,11 +154,23 @@ export function ParticipantScreen() {
   // ── 通常のライブ画面 ────────────────────────────────────────
   if (!question) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-lg font-medium">まもなく開始します</p>
-        <p className="text-sm text-black/50 dark:text-white/50">
-          講師が設問を選ぶまでお待ちください
-        </p>
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+        {materials ? (
+          <>
+            <p className="text-lg font-medium">ご参加ありがとうございました</p>
+            <p className="text-sm text-black/50 dark:text-white/50">研修資料をご覧ください</p>
+            <div className="mt-4 w-full text-left">
+              <MaterialsPanel materials={materials} />
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-lg font-medium">まもなく開始します</p>
+            <p className="text-sm text-black/50 dark:text-white/50">
+              講師が設問を選ぶまでお待ちください
+            </p>
+          </>
+        )}
         {pastQuestions.length > 0 && (
           <button
             type="button"
@@ -212,6 +227,8 @@ export function ParticipantScreen() {
       <p className="text-xs text-black/40 dark:text-white/40">
         回答済み: {answeredCount}人
       </p>
+
+      {materials && <MaterialsPanel materials={materials} />}
 
       {pastQuestions.length > 0 && (
         <button

@@ -16,7 +16,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { reorderQuestions } from "@/app/admin/actions";
+import { reorderQuestions, setMaterialsRevealed } from "@/app/admin/actions";
 import { useAdminMode } from "@/components/admin-mode";
 import { ExportLink } from "@/components/export-link";
 import { UploadIcon, WarningIcon } from "@/components/icons";
@@ -25,10 +25,19 @@ import { QuestionImportForm } from "@/components/question-import-form";
 import { QuestionRow } from "@/components/question-row";
 import { ResetAllDialog } from "@/components/reset-all-dialog";
 import { RevokeSessionsButton } from "@/components/revoke-sessions-button";
+import { ToggleButton } from "@/components/toggle-button";
 import { useLiveState } from "@/components/live-state-provider";
 import type { Deck, Question } from "@/lib/types";
 
-export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
+export function AdminConsole({
+  questions,
+  materialsConfigured,
+}: {
+  questions: Deck["questions"];
+  /** 資料設定タブで URL が登録済みかどうか。未設定なら公開トグル自体を
+   *  出さない（押しても何も起きないボタンを見せないため）。 */
+  materialsConfigured: boolean;
+}) {
   const { state } = useLiveState();
   const { mode } = useAdminMode();
   const [pending, startTransition] = useTransition();
@@ -119,6 +128,29 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-8">
+      {/* 資料公開トグル。★mode では隠さない ── setRevealed と同格の進行操作
+          であって、準備中モードに限定する破壊的操作の一群とは違う。むしろ
+          進行中（研修終盤）にこそ押すボタンなので、live で隠すと機能しなく
+          なる。資料が未設定の会ではノイズにしかならないので、
+          materialsConfigured のときだけ描画する。 */}
+      {materialsConfigured && (
+        <section className="flex flex-col gap-2 rounded-2xl border border-black/10 p-4 dark:border-white/15">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-medium">研修資料の公開</p>
+            <ToggleButton
+              checked={state.materialsRevealed}
+              disabled={pending}
+              onClick={() => run(() => setMaterialsRevealed(!state.materialsRevealed))}
+              onLabel="資料を全員に公開中"
+              offLabel="資料は回答者のみ"
+            />
+          </div>
+          <p className="text-xs text-black/50 dark:text-white/50">
+            資料設定タブで指定した設問に回答した人には、このトグルに関わらず自動で表示されます。
+          </p>
+        </section>
+      )}
+
       <section className="flex flex-col gap-3">
         {/* 見出しはタブボタン（「設問一覧」）自体が兼ねるため、ここでは重複させない
             （components/brand-settings.tsx と同じ判断）。

@@ -3,6 +3,7 @@ import type {
   BrandLogo,
   BrandLogoMeta,
   BrandLogoMime,
+  MaterialsConfig,
   Phase,
   PersonalState,
   PublicResults,
@@ -167,4 +168,32 @@ export async function setBrandLogo(bytes: Uint8Array, mime: BrandLogoMime): Prom
 export async function clearBrandLogo(): Promise<void> {
   const stub = await getSessionStub();
   return stub.clearBrandLogo();
+}
+
+export async function getMaterials(): Promise<MaterialsConfig | null> {
+  const stub = await getSessionStub();
+  return stub.getMaterials();
+}
+
+export async function setMaterials(config: MaterialsConfig): Promise<void> {
+  const stub = await getSessionStub();
+  return stub.setMaterials(config);
+}
+
+export async function clearMaterials(): Promise<void> {
+  const stub = await getSessionStub();
+  return stub.clearMaterials();
+}
+
+export async function getMaterialsFor(
+  participantId: string,
+  role: Role,
+): Promise<MaterialsConfig | null> {
+  const stub = await getSessionStub();
+  return stub.getMaterialsFor(participantId, role);
+}
+
+export async function setMaterialsRevealed(revealed: boolean): Promise<void> {
+  const stub = await getSessionStub();
+  return stub.setMaterialsRevealed(revealed);
 }

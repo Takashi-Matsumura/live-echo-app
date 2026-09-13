@@ -101,6 +101,11 @@ export function sanitizePersistedState(
     hidden,
     revealedQuestionIds,
     presentQuestionId,
+    // このフィールドが無い既存の永続データ（機能追加前に保存されたもの）
+    // を弾かず false 扱いにする ── 冒頭の必須フィールド検証群と違い、
+    // ここで型が違うからと null を返すと現行データが丸ごと初期状態に
+    // 落ちてしまう。
+    materialsRevealed: raw.materialsRevealed === true,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
   };
 }

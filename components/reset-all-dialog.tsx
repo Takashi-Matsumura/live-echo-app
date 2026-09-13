@@ -31,7 +31,7 @@ export function ResetAllDialog({ onDone }: { onDone: () => void }) {
     <form action={formAction} className="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-4 p-5">
       <p className="font-medium">回答と進行状態をリセットしますか？</p>
       <p className="text-sm text-black/50 dark:text-white/50">
-        すべての設問の回答と結果公開の状態が消え、最初の状態に戻ります。この操作は取り消せません。
+        すべての設問の回答と結果公開の状態が消え、最初の状態に戻ります。研修資料の全体公開も解除されます（設定した資料のURLは残ります）。この操作は取り消せません。
       </p>
       <label className="flex flex-col gap-1 text-sm text-red-600 dark:text-red-400">
         確認のため認証コード（6桁）を入力してください
