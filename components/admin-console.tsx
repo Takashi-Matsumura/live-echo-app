@@ -227,7 +227,7 @@ export function AdminConsole({ questions }: { questions: Deck["questions"] }) {
                 className="inline-flex items-center gap-2 rounded-full border border-red-300 px-4 py-2 text-sm font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
               >
                 <WarningIcon />
-                全体をリセット
+                回答と進行状態をリセット
               </button>
               <RevokeSessionsButton />
             </div>

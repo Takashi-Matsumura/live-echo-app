@@ -7,7 +7,7 @@ import { resetAll, type ResetAllState } from "@/app/admin/actions";
 const initialState: ResetAllState = {};
 
 /**
- * 「全体をリセット」の確認＋ステップアップ認証（TOTP再入力）フォーム。
+ * 「回答と進行状態をリセット」の確認＋ステップアップ認証（TOTP再入力）フォーム。
  * components/question-import-form.tsx と同じ構造:
  * 外側の <dialog> は components/admin-console.tsx 側が持ち、開閉のたびに
  * このコンポーネント自体をマウント/アンマウントして内部 state
@@ -29,7 +29,7 @@ export function ResetAllDialog({ onDone }: { onDone: () => void }) {
 
   return (
     <form action={formAction} className="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-4 p-5">
-      <p className="font-medium">全体をリセットしますか？</p>
+      <p className="font-medium">回答と進行状態をリセットしますか？</p>
       <p className="text-sm text-black/50 dark:text-white/50">
         すべての設問の回答と結果公開の状態が消え、最初の状態に戻ります。この操作は取り消せません。
       </p>
