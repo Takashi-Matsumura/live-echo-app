@@ -170,14 +170,16 @@ export function QuestionRow({
             出題中
           </button>
         ) : (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run(() => selectQuestion(question.id))}
-            className="shrink-0 rounded-full border border-black/10 px-4 py-2 text-sm font-medium disabled:opacity-50 dark:border-white/15"
-          >
-            この設問を出す
-          </button>
+          !editable && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => selectQuestion(question.id))}
+              className="shrink-0 rounded-full border border-black/10 px-4 py-2 text-sm font-medium disabled:opacity-50 dark:border-white/15"
+            >
+              この設問を出す
+            </button>
+          )
         )}
       </div>
 

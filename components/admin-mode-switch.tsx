@@ -4,11 +4,11 @@ import { useAdminMode, type AdminMode } from "@/components/admin-mode";
 
 const OPTIONS: { readonly id: AdminMode; readonly label: string }[] = [
   { id: "setup", label: "準備中" },
-  { id: "live", label: "進行中" },
+  { id: "live", label: "本番中" },
 ];
 
 /**
- * ヘッダに常設するモード切替。準備中／進行中の2択で、進行中を選ぶと
+ * ヘッダに常設するモード切替。準備中／本番中の2択で、本番中を選ぶと
  * 設問の編集・削除・データ入出力・全体リセット・全端末ログアウト・
  * ブランド設定が画面から消える（components/admin-console.tsx,
  * components/admin-tabs.tsx 側で useAdminMode() を見て出し分ける）。
