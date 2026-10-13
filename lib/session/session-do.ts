@@ -45,11 +45,12 @@ const VOTE_BROADCAST_DEBOUNCE_MS = 100;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const VOTE_LIMIT = 20;
 const VOTE_WINDOW_MS = 60_000;
-// participantId（Cookie）は差し替え放題なので、接続元 IP 単位の第2の制限を
-// 重ねる。★会場 Wi-Fi やモバイル回線の NAT では数百人が同じ IP から来るため、
-// 「全員が1分以内に投票して何人かが選び直す」正規のピークを確実に通す値に
-// してある（MAX_SUBSCRIBERS と同じ桁）。1 IP からの水増しを止め切る値では
-// なく、流量の頭打ちが目的 ── 件数そのものの上限は mutations.ts の
+// participantId（Cookie）は差し替え放題なので、接続元 IP 単位で「新しい
+// 回答者として数えられる投票」の数に第2の制限を重ねる（castVote 参照）。
+// ★会場 Wi-Fi やモバイル回線の NAT では数百人が同じ IP から来るため、
+// 「全員が1分以内に投票する」正規のピークを確実に通す値にしてある
+// （MAX_SUBSCRIBERS と同じ桁）。1 IP からの水増しを止め切る値ではなく、
+// 流量の頭打ちが目的 ── 件数そのものの上限は mutations.ts の
 // MAX_BALLOTS_PER_QUESTION が担う。
 const VOTE_IP_LIMIT = 1000;
 // SSE は無認証で開けるため、大量接続によるこの DO 単体への負荷・ストレージ
@@ -341,12 +342,10 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     questionId: string,
     rawAnswers: readonly string[],
   ): Promise<VoteResult> {
-    if (
-      !checkRateLimit(this.voteBuckets, `vote-ip:${ipKey}`, VOTE_IP_LIMIT, VOTE_WINDOW_MS) ||
-      !checkRateLimit(this.voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)
-    ) {
+    if (!checkRateLimit(this.voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)) {
       return { ok: false, reason: "rate-limited" };
     }
+    const isNewBallot = !Object.hasOwn(this.state.ballots[questionId] ?? {}, participantId);
     const { next, result } = applyCastVote(
       this.state,
       this.questions,
@@ -354,6 +353,18 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
       questionId,
       rawAnswers,
     );
+    // ★IP の枠は「新しい回答者が1人増える」有効な投票だけで消費する。
+    // 同じ NAT の全員が共有する枠なので、無効な投票・選び直し・ID 単位の
+    // 制限で弾かれる連打まで数えると、1人が連打するだけで同じ会場の全員が
+    // 投票できなくなる。applyCastVote は純粋関数なので、ここで弾く場合は
+    // next を捨てるだけでよい（状態は変わっていない）。
+    if (
+      next &&
+      isNewBallot &&
+      !checkRateLimit(this.voteBuckets, `vote-new:${ipKey}`, VOTE_IP_LIMIT, VOTE_WINDOW_MS)
+    ) {
+      return { ok: false, reason: "rate-limited" };
+    }
     if (next) {
       this.state = next;
       this.broadcastDebounced();
