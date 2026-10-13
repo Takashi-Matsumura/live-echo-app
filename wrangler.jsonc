@@ -4,10 +4,11 @@
 	"name": "live-echo-app",
 	"compatibility_date": "2026-08-11",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-	// routes（カスタムドメイン）を追加すると wrangler は workers_dev を既定で
-	// 無効化する。フォールバック URL として workers.dev を維持したいので明示的に
-	// 有効化しておく（実際に無効化されて 404 になることを確認済み）。
-	"workers_dev": true,
+	// workers.dev の URL は pineville.dev ゾーンの WAF（マネージドルール・
+	// レート制限）を通らない。実際に WAF が RCE 狙いの POST を日常的に
+	// ブロックしているため、WAF を迂回できる入口は閉じておく。
+	// フォールバック URL が必要になったら一時的に true へ戻す。
+	"workers_dev": false,
 	// カスタムドメイン。Cloudflare Registrar で購入済みのゾーンなので DNS/SSL は
 	// deploy 時に自動でプロビジョニングされる。
 	"routes": [
