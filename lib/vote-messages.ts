@@ -12,5 +12,7 @@ export function voteErrorMessage(reason: Exclude<VoteResult, { ok: true }>["reas
       return "文字数が上限を超えています。";
     case "rate-limited":
       return "少し間隔を空けてからもう一度お試しください。";
+    case "full":
+      return "回答数が上限に達したため、受け付けできませんでした。";
   }
 }

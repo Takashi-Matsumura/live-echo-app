@@ -8,6 +8,8 @@
 type RateLimitBucket = { count: number; resetAt: number };
 export type RateLimitBuckets = Map<string, RateLimitBucket>;
 
+const PURGE_THRESHOLD = 5000;
+
 /** limit 回/windowMs を超えたら false を返す */
 export function checkRateLimit(
   buckets: RateLimitBuckets,
@@ -16,6 +18,14 @@ export function checkRateLimit(
   windowMs: number,
 ): boolean {
   const now = Date.now();
+  // キー（participantId / IP）は外部から幾らでも増やせるので、放置すると
+  // DO が退避されるまで Map が単調増加する。一定数を超えたら期限切れの
+  // バケットをまとめて捨てる（毎回走査しないための閾値）。
+  if (buckets.size >= PURGE_THRESHOLD) {
+    for (const [k, b] of buckets) {
+      if (b.resetAt <= now) buckets.delete(k);
+    }
+  }
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
     buckets.set(key, { count: 1, resetAt: now + windowMs });

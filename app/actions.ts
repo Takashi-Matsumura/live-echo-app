@@ -1,5 +1,6 @@
 "use server";
 
+import { clientIpKey } from "@/lib/auth/client-ip";
 import { getOrCreateParticipantId } from "@/lib/auth/participant";
 import { castVote } from "@/lib/session/service";
 import type { VoteResult } from "@/lib/types";
@@ -16,6 +17,10 @@ import type { VoteResult } from "@/lib/types";
  * リクエストがすべて DO の単一インスタンスを経由するため、そこで一元的に
  * 判定するのが自然かつ正確（Next.js の Worker 側は複数 isolate に
  * 分散しうるため、ここで独自にレート制限を持つと isolate ごとに別集計になる）。
+ *
+ * participantId（le_pid Cookie）はクライアントが自由に差し替えられるので、
+ * それだけをキーにした制限は Cookie を変えるだけで迂回できる。偽装できない
+ * 接続元 IP も併せて DO に渡し、第2の制限のキーにする。
  */
 export async function submitVote(
   questionId: string,
@@ -23,5 +28,5 @@ export async function submitVote(
 ): Promise<VoteResult> {
   const participantId = await getOrCreateParticipantId();
   const answers = formData.getAll("answer").map((v) => String(v));
-  return await castVote(participantId, questionId, answers);
+  return await castVote(participantId, await clientIpKey(), questionId, answers);
 }

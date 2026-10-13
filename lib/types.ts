@@ -253,7 +253,7 @@ export type BrandLogoMeta = Omit<BrandLogo, "bytes">;
 
 export type VoteResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: "closed" | "stale" | "invalid" | "too-long" | "rate-limited" };
+  | { readonly ok: false; readonly reason: "closed" | "stale" | "invalid" | "too-long" | "rate-limited" | "full" };
 
 // ── 研修資料（SessionState とは別のストレージキーに保存する） ──────────
 // ブランド設定と同じ理由で SessionState の外に置く。SessionState は投票の

@@ -22,6 +22,15 @@ function commit(
 }
 
 /**
+ * 1設問が受け付ける回答者数の上限。participantId は匿名 Cookie で幾らでも
+ * 作れるため、上限が無いと ballots（＝1つのストレージ値に丸ごと保存する
+ * SessionState）を外部から際限なく膨らませられる。通常の会場利用
+ * （同時接続の上限 MAX_SUBSCRIBERS = 1000）を超える値にしてあり、実運用で
+ * 当たる想定はしていない安全弁。
+ */
+export const MAX_BALLOTS_PER_QUESTION = 2000;
+
+/**
  * ★このファイルの関数はすべて純粋（I/O を持たない）。
  * 状態を受け取り、次の状態（または変更なしを示す null）を返すだけ。
  * 呼び出し側（DO）がこれを唯一の書き込み経路として扱う限り、読む→計算する→
@@ -75,6 +84,13 @@ export function applyCastVote(
   }
 
   const questionBallots = current.ballots[questionId] ?? {};
+  // 新規の回答者だけを数える（既に回答済みの人の選び直しは常に通す）。
+  if (
+    !Object.hasOwn(questionBallots, participantId) &&
+    Object.keys(questionBallots).length >= MAX_BALLOTS_PER_QUESTION
+  ) {
+    return { next: null, result: { ok: false, reason: "full" } };
+  }
   const next = commit(current, {
     ballots: {
       ...current.ballots,

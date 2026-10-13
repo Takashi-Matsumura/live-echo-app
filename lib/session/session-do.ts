@@ -45,6 +45,13 @@ const VOTE_BROADCAST_DEBOUNCE_MS = 100;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const VOTE_LIMIT = 20;
 const VOTE_WINDOW_MS = 60_000;
+// participantId（Cookie）は差し替え放題なので、接続元 IP 単位の第2の制限を
+// 重ねる。★会場 Wi-Fi やモバイル回線の NAT では数百人が同じ IP から来るため、
+// 「全員が1分以内に投票して何人かが選び直す」正規のピークを確実に通す値に
+// してある（MAX_SUBSCRIBERS と同じ桁）。1 IP からの水増しを止め切る値では
+// なく、流量の頭打ちが目的 ── 件数そのものの上限は mutations.ts の
+// MAX_BALLOTS_PER_QUESTION が担う。
+const VOTE_IP_LIMIT = 1000;
 // SSE は無認証で開けるため、大量接続によるこの DO 単体への負荷・ストレージ
 // 課金の集中を防ぐ安全弁。通常の会場利用（数百人規模）を十分超える値にして
 // あり、実運用で当たる想定はしていない — Cloudflare 側の Rate Limiting Rule
@@ -273,7 +280,11 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
    * しないと onopen が発火しない」という制約が、この構成では自然に守られる）。
    */
   async openEventStream(role: Role, participantId: string): Promise<ReadableStream<Uint8Array>> {
-    if (this.subscribers.size >= MAX_SUBSCRIBERS) {
+    // admin（管理画面・投影画面）は上限判定から除外する。無認証で開ける
+    // 参加者枠を埋め尽くされても、講師の画面まで巻き添えで締め出されない
+    // ようにするため。role は Worker 側で le_admin Cookie を検証した結果
+    // なので、ここで信頼してよい（クエリで admin を名乗ることはできない）。
+    if (role !== "admin" && this.subscribers.size >= MAX_SUBSCRIBERS) {
       throw new Error(SESSION_FULL_ERROR);
     }
     const initialSnapshot = toPublicState(this.state, this.questions, role);
@@ -326,10 +337,14 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   async castVote(
     participantId: string,
+    ipKey: string,
     questionId: string,
     rawAnswers: readonly string[],
   ): Promise<VoteResult> {
-    if (!checkRateLimit(this.voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)) {
+    if (
+      !checkRateLimit(this.voteBuckets, `vote-ip:${ipKey}`, VOTE_IP_LIMIT, VOTE_WINDOW_MS) ||
+      !checkRateLimit(this.voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)
+    ) {
       return { ok: false, reason: "rate-limited" };
     }
     const { next, result } = applyCastVote(
