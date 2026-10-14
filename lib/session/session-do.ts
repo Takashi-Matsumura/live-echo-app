@@ -73,6 +73,8 @@ const LOGIN_WINDOW_MS = 60_000;
 // lib/session/totp-gate.ts と同じ理由）。保持する IP の数には上限を設ける。
 const LOGIN_BUCKETS_STORAGE_KEY = "loginBuckets";
 const LOGIN_BUCKETS_MAX = 1000;
+// 満杯のとき、まだ記録の無い IP はこの1枠を共有する（checkLoginRate 参照）。
+const LOGIN_OVERFLOW_KEY = "login:overflow";
 const STATE_STORAGE_KEY = "state";
 // 設問は SessionState とは別キー。ただし brand logo と違い toPublicState()
 // がホットパス（投票のたびに publish() が同期的に呼ぶ）で必要とするため、
@@ -416,13 +418,16 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   /** ログイン試行のレート制限。lib/auth/admin.ts の verifyPassword から呼ぶ */
   async checkLoginRate(key: string): Promise<boolean> {
-    const bucketKey = `login:${key}`;
+    let bucketKey = `login:${key}`;
     pruneExpired(this.loginBuckets);
     if (this.loginBuckets.size >= LOGIN_BUCKETS_MAX && !this.loginBuckets.has(bucketKey)) {
-      // 満杯なら最古のエントリを捨てる（Map は挿入順を保つ）。新しい IP を
-      // 断ると、多数の IP から1回ずつ試すだけで管理者本人を締め出せてしまう。
-      const oldest = this.loginBuckets.keys().next();
-      if (!oldest.done) this.loginBuckets.delete(oldest.value);
+      // 満杯なら、記録の無い IP は共有の1枠で数える。古いエントリを捨てる
+      // 方式だと、上限を超える数の IP を順に使うだけで自分の記録が追い出され、
+      // どの IP も上限に届かないまま試行を続けられる。新しい IP を一律に
+      // 断る方式だと、多数の IP から1回ずつ試すだけで全員を締め出せる。
+      // 共有枠なら、試行数は「記録済みの IP の枠 + 共有枠」で頭打ちになる
+      // （Map の大きさも LOGIN_BUCKETS_MAX + 1 で止まる）。
+      bucketKey = LOGIN_OVERFLOW_KEY;
     }
     const allowed = checkRateLimit(this.loginBuckets, bucketKey, LOGIN_LIMIT, LOGIN_WINDOW_MS);
     // await しない（persist() と同じ。出力ゲートが書き込み確定まで応答を保留する）。
