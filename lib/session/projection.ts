@@ -82,10 +82,23 @@ function buildPastQuestions(
 ): PublicState["pastQuestions"] {
   const result: { id: string; prompt: string }[] = [];
   for (const id of state.revealedQuestionIds) {
+    if (isActiveAndUnrevealed(state, id)) continue;
     const question = getQuestionById(questions, id);
     if (question) result.push({ id: question.id, prompt: question.prompt });
   }
   return result;
+}
+
+/**
+ * 出題中の設問を講師が「公開→非公開」に戻した状態。revealedQuestionIds
+ * には「一度でも公開した」記録として id が残るが、この間は toPublicState が
+ * ライブ画面の結果を伏せている。同じ設問を「過去の結果」経由で見せて
+ * しまうと、受付中の集計がそのまま読めて開示制御と食い違うため、
+ * 一覧（buildPastQuestions）と取得（resultsForQuestion）の両方で伏せる。
+ * 再度公開するか、別の設問へ切り替えれば（＝出題中でなくなれば）また見える。
+ */
+function isActiveAndUnrevealed(state: SessionState, questionId: string): boolean {
+  return state.activeQuestionId === questionId && !state.revealed;
 }
 
 /**
@@ -103,6 +116,7 @@ export function resultsForQuestion(
   role: Role,
 ): { readonly question: Question; readonly results: PublicResults } | null {
   if (!state.revealedQuestionIds.includes(questionId)) return null;
+  if (role !== "admin" && isActiveAndUnrevealed(state, questionId)) return null;
   const question = getQuestionById(questions, questionId);
   if (!question) return null;
   const ballots = state.ballots[question.id] ?? {};

@@ -273,7 +273,11 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
    * しないと onopen が発火しない」という制約が、この構成では自然に守られる）。
    */
   async openEventStream(role: Role, participantId: string): Promise<ReadableStream<Uint8Array>> {
-    if (this.subscribers.size >= MAX_SUBSCRIBERS) {
+    // admin（管理画面・投影画面）は上限判定から除外する。無認証で開ける
+    // 参加者枠を埋め尽くされても、講師の画面まで巻き添えで締め出されない
+    // ようにするため。role は Worker 側で le_admin Cookie を検証した結果
+    // なので、ここで信頼してよい（クエリで admin を名乗ることはできない）。
+    if (role !== "admin" && this.subscribers.size >= MAX_SUBSCRIBERS) {
       throw new Error(SESSION_FULL_ERROR);
     }
     const initialSnapshot = toPublicState(this.state, this.questions, role);

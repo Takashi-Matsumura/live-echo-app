@@ -154,7 +154,7 @@ TOTP 未登録の間（初回デプロイ直後・`TOTP_SECRET` ローテーシ�
   - **アイドルタイムアウト + 絶対TTL**: Cookie は `iat.exp.gen.mac`（発行時刻・失効時刻・セッション世代番号・署名）の4パート構成。管理操作（Server Action）や状態同期（`/api/state`・`/api/stream`）のたびに失効時刻が2時間先まで延長される（`refreshAdminSession()`）が、発行から12時間を超えると操作を続けていても必ず失効する
   - **全端末ログアウト（キルスイッチ）**: DO 側に持つ「管理者セッション世代番号」（`SessionDO.revokeAdminSessions()`）を1つ進めるだけで、既発行の Cookie が署名付きでも即座に全部無効になる。`wrangler secret put SESSION_SECRET` による全体ローテーション（再デプロイが要る）より即効性がある
   - **破壊的操作へのステップアップ認証**: 「回答と進行状態をリセット」・設問インポートの「全て置き換え」は、Cookie の有効性に加えてその場での TOTP コード再入力を要求する（`assertAdminWithTotp()`）。Cookie だけが盗まれても、被害を閲覧や小さな操作程度に抑える
-- **`/api/stream` の同時接続数上限**（`lib/session/session-do.ts`）: SSE エンドポイントは無認証で開けるため、大量接続がこの DO 単体に集中する DoS を防ぐ安全弁として、同時購読者数の上限（`MAX_SUBSCRIBERS = 1000`）を設けている。上限に達すると `503`（`Retry-After: 30`）を返す。あわせて Cloudflare ダッシュボード側で `/api/stream` への接続試行そのものを頻度制限する Rate Limiting Rule の設定を推奨する（`security-review-20260820.md` 参照）
+- **`/api/stream` の同時接続数上限**（`lib/session/session-do.ts`）: SSE エンドポイントは無認証で開けるため、大量接続がこの DO 単体に集中する DoS を防ぐ安全弁として、同時購読者数の上限（`MAX_SUBSCRIBERS = 1000`）を設けている。上限に達すると `503`（`Retry-After: 30`）を返す。管理者（管理画面・投影画面）の接続はこの上限判定から除外してあり、参加者枠を埋め尽くされても講師の画面は接続できる。あわせて Cloudflare ダッシュボード側で `/api/stream` への接続試行そのものを頻度制限する Rate Limiting Rule の設定を推奨する（`security-review-20260820.md` 参照）
 
 ### SSR + SSE の仕組み
 

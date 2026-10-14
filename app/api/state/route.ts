@@ -22,5 +22,6 @@ export async function GET(request: Request) {
     you: await personalFor(participantId),
   };
 
-  return Response.json(payload);
+  // admin 向けには未公開の集計が含まれうるので、どこにも保存させない。
+  return Response.json(payload, { headers: { "Cache-Control": "no-store" } });
 }
