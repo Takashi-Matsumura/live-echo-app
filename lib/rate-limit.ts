@@ -25,3 +25,25 @@ export function checkRateLimit(
   bucket.count += 1;
   return true;
 }
+
+/** 期限切れのバケットを取り除く（Map が際限なく伸びないようにする）。 */
+export function pruneExpired(buckets: RateLimitBuckets, now = Date.now()): void {
+  for (const [key, bucket] of buckets) {
+    if (bucket.resetAt <= now) buckets.delete(key);
+  }
+}
+
+/** ストレージから読んだバケット一覧（[key, bucket] の配列）を検証して Map に戻す。 */
+export function parsePersistedBuckets(raw: unknown): RateLimitBuckets {
+  const buckets: RateLimitBuckets = new Map();
+  if (!Array.isArray(raw)) return buckets;
+  for (const entry of raw) {
+    if (!Array.isArray(entry) || entry.length !== 2) continue;
+    const [key, bucket] = entry as [unknown, unknown];
+    if (typeof key !== "string" || typeof bucket !== "object" || bucket === null) continue;
+    const { count, resetAt } = bucket as Record<string, unknown>;
+    if (typeof count !== "number" || typeof resetAt !== "number") continue;
+    buckets.set(key, { count, resetAt });
+  }
+  return buckets;
+}

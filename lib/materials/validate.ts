@@ -59,7 +59,9 @@ export function validateMaterialsInput(
   return {
     ok: true,
     data: {
-      url,
+      // 保存・表示には検証した URL オブジェクトの正規形を使う。元の文字列を
+      // 使うと、検証時の解釈と表示側（<a href>・QR）の解釈がずれる余地が残る。
+      url: parsed.href,
       label,
       gateQuestionId: gateQuestionId.length > 0 ? gateQuestionId : null,
     },
