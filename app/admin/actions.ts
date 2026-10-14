@@ -66,19 +66,27 @@ export async function selectQuestion(questionId: string): Promise<void> {
   await service.selectQuestion(questionId);
 }
 
+// Server Action の引数は TypeScript の型どおりに届くとは限らない（クライアント
+// から任意の値を送れる）ので、状態に保存する値は実行時にも検証する。不正な
+// phase を保存すると、次回起動時に sanitizePersistedState が state 全体を
+// 初期化してしまう。
+
 export async function setPhase(phase: "open" | "closed"): Promise<void> {
   await assertAdmin();
+  if (phase !== "open" && phase !== "closed") return;
   await service.setPhase(phase);
 }
 
 export async function setRevealed(revealed: boolean): Promise<void> {
   await assertAdmin();
+  if (typeof revealed !== "boolean") return;
   await service.setRevealed(revealed);
 }
 
 /** 研修資料を回答有無を問わず全参加者に公開する／取り消す。 */
 export async function setMaterialsRevealed(revealed: boolean): Promise<void> {
   await assertAdmin();
+  if (typeof revealed !== "boolean") return;
   await service.setMaterialsRevealed(revealed);
 }
 
@@ -89,6 +97,7 @@ export async function setMaterialsRevealed(revealed: boolean): Promise<void> {
  */
 export async function setPresentQuestion(questionId: string | null): Promise<void> {
   await assertAdmin();
+  if (questionId !== null && typeof questionId !== "string") return;
   await service.setPresentQuestion(questionId);
 }
 

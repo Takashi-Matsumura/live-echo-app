@@ -23,7 +23,12 @@ import {
   bumpRev,
 } from "@/lib/session/mutations";
 import { seedQuestions } from "@/lib/questions/seed";
-import { checkRateLimit, type RateLimitBuckets } from "@/lib/rate-limit";
+import {
+  checkRateLimit,
+  parsePersistedBuckets,
+  pruneExpired,
+  type RateLimitBuckets,
+} from "@/lib/rate-limit";
 import type {
   BrandLogo,
   BrandLogoMeta,
@@ -62,6 +67,12 @@ const ISSUE_WINDOW_MS = 60 * 60_000;
 const ISSUE_BUCKETS_MAX = 10_000;
 const LOGIN_LIMIT = 10;
 const LOGIN_WINDOW_MS = 60_000;
+// パスワード試行のカウンタは ctx.storage に永続化する。インスタンスフィールド
+// だけだと、DO が購読者ゼロで退避するたびにリセットされ、「数回試す→退避を
+// 待つ→また数回」で上限を抜けられる（TOTP の失敗カウンタを永続化している
+// lib/session/totp-gate.ts と同じ理由）。保持する IP の数には上限を設ける。
+const LOGIN_BUCKETS_STORAGE_KEY = "loginBuckets";
+const LOGIN_BUCKETS_MAX = 1000;
 const STATE_STORAGE_KEY = "state";
 // 設問は SessionState とは別キー。ただし brand logo と違い toPublicState()
 // がホットパス（投票のたびに publish() が同期的に呼ぶ）で必要とするため、
@@ -120,6 +131,7 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   private voteBuckets: RateLimitBuckets = new Map();
   private loginBuckets: RateLimitBuckets = new Map();
   private issueBuckets: RateLimitBuckets = new Map();
+  private votePrunedAt = 0;
   private adminSessionGen = 0;
   private readonly totpGate: TotpGate;
   private readonly brandLogoStore: BrandLogoStore;
@@ -133,11 +145,14 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     // コンストラクタ完了まで他の呼び出しはキューイングされるため、
     // 各メソッド側で復元完了を個別に待つ必要はない。
     ctx.blockConcurrencyWhile(async () => {
-      const [persistedState, persistedQuestions, persistedGen] = await Promise.all([
-        ctx.storage.get<unknown>(STATE_STORAGE_KEY),
-        ctx.storage.get<unknown>(QUESTIONS_STORAGE_KEY),
-        ctx.storage.get<unknown>(ADMIN_SESSION_GEN_STORAGE_KEY),
-      ]);
+      const [persistedState, persistedQuestions, persistedGen, persistedLoginBuckets] =
+        await Promise.all([
+          ctx.storage.get<unknown>(STATE_STORAGE_KEY),
+          ctx.storage.get<unknown>(QUESTIONS_STORAGE_KEY),
+          ctx.storage.get<unknown>(ADMIN_SESSION_GEN_STORAGE_KEY),
+          ctx.storage.get<unknown>(LOGIN_BUCKETS_STORAGE_KEY),
+        ]);
+      this.loginBuckets = parsePersistedBuckets(persistedLoginBuckets);
       if (typeof persistedGen === "number" && Number.isInteger(persistedGen)) {
         this.adminSessionGen = persistedGen;
       }
@@ -375,6 +390,13 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     questionId: string,
     rawAnswers: readonly string[],
   ): Promise<VoteResult> {
+    // 参加者 ID ごとのバケットは、窓（1分）に1回だけ期限切れを掃除する。
+    // 投票のたびに全件を走査しないため。
+    const now = Date.now();
+    if (now - this.votePrunedAt >= VOTE_WINDOW_MS) {
+      pruneExpired(this.voteBuckets, now);
+      this.votePrunedAt = now;
+    }
     if (!checkRateLimit(this.voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)) {
       return { ok: false, reason: "rate-limited" };
     }
@@ -394,7 +416,22 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   /** ログイン試行のレート制限。lib/auth/admin.ts の verifyPassword から呼ぶ */
   async checkLoginRate(key: string): Promise<boolean> {
-    return checkRateLimit(this.loginBuckets, `login:${key}`, LOGIN_LIMIT, LOGIN_WINDOW_MS);
+    const bucketKey = `login:${key}`;
+    pruneExpired(this.loginBuckets);
+    if (this.loginBuckets.size >= LOGIN_BUCKETS_MAX && !this.loginBuckets.has(bucketKey)) {
+      // 満杯なら最古のエントリを捨てる（Map は挿入順を保つ）。新しい IP を
+      // 断ると、多数の IP から1回ずつ試すだけで管理者本人を締め出せてしまう。
+      const oldest = this.loginBuckets.keys().next();
+      if (!oldest.done) this.loginBuckets.delete(oldest.value);
+    }
+    const allowed = checkRateLimit(this.loginBuckets, bucketKey, LOGIN_LIMIT, LOGIN_WINDOW_MS);
+    // await しない（persist() と同じ。出力ゲートが書き込み確定まで応答を保留する）。
+    void this.ctx.storage
+      .put(LOGIN_BUCKETS_STORAGE_KEY, [...this.loginBuckets])
+      .catch((err: unknown) => {
+        console.error("[SessionDO] ログイン試行カウンタの保存に失敗しました", err);
+      });
+    return allowed;
   }
 
   // ── 管理者セッションの世代番号（全端末ログアウト） ────────────────
