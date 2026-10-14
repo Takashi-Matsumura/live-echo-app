@@ -1,5 +1,5 @@
 import { isAdmin, refreshAdminSession, resolveRole } from "@/lib/auth/admin";
-import { getOrCreateParticipantId } from "@/lib/auth/participant";
+import { peekParticipantId } from "@/lib/auth/participant";
 import { personalFor, snapshotFor } from "@/lib/session/service";
 import type { ServerEvent } from "@/lib/types";
 
@@ -9,7 +9,7 @@ import type { ServerEvent } from "@/lib/types";
  * - `curl -sS http://localhost:3000/api/state` で状態を目視確認できる
  */
 export async function GET(request: Request) {
-  const participantId = await getOrCreateParticipantId();
+  const participantId = await peekParticipantId();
   const actuallyAdmin = await isAdmin();
   // 管理画面が開かれている間はここが定期的に叩かれる（visibilitychange 復帰時）
   // ので、アイドルタイムアウトの延長ポイントとしても使う。

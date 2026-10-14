@@ -27,7 +27,7 @@ export async function snapshotFor(role: Role): Promise<PublicState> {
   return stub.snapshot(role);
 }
 
-export async function personalFor(participantId: string): Promise<PersonalState> {
+export async function personalFor(participantId: string | null): Promise<PersonalState> {
   const stub = await getSessionStub();
   return stub.personal(participantId);
 }
@@ -52,10 +52,15 @@ export async function getAdminConnectionCount(): Promise<number> {
 
 export async function openEventStream(
   role: Role,
-  participantId: string,
+  participantId: string | null,
 ): Promise<ReadableStream<Uint8Array>> {
   const stub = await getSessionStub();
   return stub.openEventStream(role, participantId);
+}
+
+export async function admitParticipant(ipKey: string): Promise<boolean> {
+  const stub = await getSessionStub();
+  return stub.admitParticipant(ipKey);
 }
 
 export async function castVote(
@@ -186,7 +191,7 @@ export async function clearMaterials(): Promise<void> {
 }
 
 export async function getMaterialsFor(
-  participantId: string,
+  participantId: string | null,
   role: Role,
 ): Promise<MaterialsConfig | null> {
   const stub = await getSessionStub();

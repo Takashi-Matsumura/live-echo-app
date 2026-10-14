@@ -8,6 +8,7 @@ import { VoteOptionLabel } from "@/components/vote-option-label";
 import { VoteSubmitButton } from "@/components/vote-submit-button";
 import { asFormAction } from "@/lib/form-action";
 import { answerText } from "@/lib/questions";
+import { submitVoteVerified } from "@/lib/turnstile-client";
 import { voteErrorMessage } from "@/lib/vote-messages";
 import type { ChoiceQuestion, VoteResult } from "@/lib/types";
 
@@ -38,7 +39,7 @@ export function ChoiceVoteForm({ question }: { question: ChoiceQuestion }) {
         if (!selected) return;
         const formData = new FormData(event.currentTarget);
         startTransition(async () => {
-          const result: VoteResult = await boundAction(formData);
+          const result: VoteResult = await submitVoteVerified(boundAction, formData);
           if (result.ok) {
             markAnswered(question.id, selected);
           } else {

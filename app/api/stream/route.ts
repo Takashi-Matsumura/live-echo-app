@@ -1,5 +1,5 @@
 import { isAdmin, refreshAdminSession, resolveRole } from "@/lib/auth/admin";
-import { getOrCreateParticipantId } from "@/lib/auth/participant";
+import { peekParticipantId } from "@/lib/auth/participant";
 import { SESSION_FULL_ERROR } from "@/lib/session/errors";
 import { openEventStream } from "@/lib/session/service";
 import type { Role } from "@/lib/types";
@@ -17,7 +17,7 @@ import type { Role } from "@/lib/types";
  * lib/auth/admin.ts の resolveRole() を参照。
  */
 export async function GET(request: Request) {
-  const participantId = await getOrCreateParticipantId();
+  const participantId = await peekParticipantId();
   const actuallyAdmin = await isAdmin();
   // SSE 接続は数十分〜数時間おきに張り直される（ネットワーク切替・DO の
   // 退避など）ので、ここもアイドルタイムアウトの延長ポイントになる。

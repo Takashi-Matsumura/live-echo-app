@@ -40,6 +40,14 @@ export const env = {
   get TOTP_SECRET(): string {
     return validateTotpSecret(readEnv("TOTP_SECRET"));
   },
+  /** Turnstile のサイトキー。公開値で、ウィジェットの描画時にブラウザへ渡す。 */
+  get TURNSTILE_SITE_KEY(): string {
+    return readEnv("TURNSTILE_SITE_KEY");
+  },
+  /** Turnstile のシークレットキー。トークン検証（lib/auth/turnstile.ts）専用。 */
+  get TURNSTILE_SECRET_KEY(): string {
+    return readEnv("TURNSTILE_SECRET_KEY");
+  },
   /**
    * 未設定なら null。設定時は QR / present 画面の URL 生成を上書きする。
    * ブラケット記法（process.env["PUBLIC_BASE_URL"]）で読むのが重要: ドット記法
@@ -62,4 +70,6 @@ export function validateEnv(): void {
   void env.ADMIN_PASSWORD;
   void env.SESSION_SECRET;
   void env.TOTP_SECRET;
+  void env.TURNSTILE_SITE_KEY;
+  void env.TURNSTILE_SECRET_KEY;
 }
