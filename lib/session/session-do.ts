@@ -45,24 +45,6 @@ const VOTE_BROADCAST_DEBOUNCE_MS = 100;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const VOTE_LIMIT = 20;
 const VOTE_WINDOW_MS = 60_000;
-// participantId（Cookie）は差し替え放題なので、接続元 IP 単位で「新しい
-// 回答者として数えられる投票」の数に第2の制限を重ねる（castVote 参照）。
-// ★会場 Wi-Fi やモバイル回線の NAT では数百人が同じ IP から来るため、
-// 「全員が1分以内に投票する」正規のピークを確実に通す値にしてある
-// （MAX_SUBSCRIBERS と同じ桁）。1 IP からの水増しを止め切る値ではなく、
-// 流量の頭打ちが目的 ── 件数そのものの上限は mutations.ts の
-// MAX_BALLOTS_PER_QUESTION が担う。
-const VOTE_IP_LIMIT = 1000;
-// 1 IP からの投票リクエスト総数（有効・無効・選び直しをすべて数える）の
-// 上限。castVote の先頭で必ず判定する関門で、これが無いと Cookie を
-// 変え続ける 1 IP が参加者 ID 単位のバケットを際限なく作れ、選び直し
-// （状態の書き換え・全体配信を伴う）も ID 数 × 20 回/分まで撃てる。
-// ★この枠も同じ NAT の全員で共有するので、正規のピーク（1000人が
-// 1分以内に投票し、何度か選び直す）より十分大きくしてある。逆に言えば、
-// 会場内の1人が毎秒100回を超えて撃ち続ければ同じ IP の全員が一時的に
-// 弾かれる ── 関門を置く以上は避けられないトレードオフで、その規模の
-// 連打は Cloudflare 側の IP 単位レート制限ルールで止めるのが筋。
-const VOTE_IP_REQUEST_LIMIT = 6000;
 // SSE は無認証で開けるため、大量接続によるこの DO 単体への負荷・ストレージ
 // 課金の集中を防ぐ安全弁。通常の会場利用（数百人規模）を十分超える値にして
 // あり、実運用で当たる想定はしていない — Cloudflare 側の Rate Limiting Rule
@@ -126,11 +108,6 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   private broadcastTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private voteBuckets: RateLimitBuckets = new Map();
-  // IP 単位のバケットは参加者 ID 単位（voteBuckets）とは別の Map に置く。
-  // ID は Cookie の差し替えで量産できるので、同じ Map に入れると、
-  // lib/rate-limit.ts の件数上限による追い出しで IP 側のカウンタを
-  // 押し出してリセットできてしまう。
-  private voteIpBuckets: RateLimitBuckets = new Map();
   private loginBuckets: RateLimitBuckets = new Map();
   private adminSessionGen = 0;
   private readonly totpGate: TotpGate;
@@ -353,19 +330,12 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   async castVote(
     participantId: string,
-    ipKey: string,
     questionId: string,
     rawAnswers: readonly string[],
   ): Promise<VoteResult> {
-    // 判定順が重要: まず IP 単位の総量（ここを通った分しか参加者 ID の
-    // バケットは作られない）、次に参加者 ID 単位、最後に新規回答者の枠。
-    if (
-      !checkRateLimit(this.voteIpBuckets, `req:${ipKey}`, VOTE_IP_REQUEST_LIMIT, VOTE_WINDOW_MS) ||
-      !checkRateLimit(this.voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)
-    ) {
+    if (!checkRateLimit(this.voteBuckets, `vote:${participantId}`, VOTE_LIMIT, VOTE_WINDOW_MS)) {
       return { ok: false, reason: "rate-limited" };
     }
-    const isNewBallot = !Object.hasOwn(this.state.ballots[questionId] ?? {}, participantId);
     const { next, result } = applyCastVote(
       this.state,
       this.questions,
@@ -373,19 +343,6 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
       questionId,
       rawAnswers,
     );
-    // ★新規回答者の枠（VOTE_IP_LIMIT）は「新しい回答者が1人増える」有効な
-    // 投票だけで消費する。同じ NAT の全員が共有する小さい枠なので、無効な
-    // 投票や選び直しまで数えると、1人の連打で同じ会場の新規回答者が
-    // すぐ弾かれてしまう（総量は先頭の VOTE_IP_REQUEST_LIMIT が抑える）。
-    // applyCastVote は純粋関数なので、ここで弾く場合は next を捨てるだけで
-    // よい（状態は変わっていない）。
-    if (
-      next &&
-      isNewBallot &&
-      !checkRateLimit(this.voteIpBuckets, `new:${ipKey}`, VOTE_IP_LIMIT, VOTE_WINDOW_MS)
-    ) {
-      return { ok: false, reason: "rate-limited" };
-    }
     if (next) {
       this.state = next;
       this.broadcastDebounced();
