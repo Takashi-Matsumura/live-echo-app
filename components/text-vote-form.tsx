@@ -6,6 +6,7 @@ import { useLiveState } from "@/components/live-state-provider";
 import { VoteError } from "@/components/vote-error";
 import { VoteSubmitButton } from "@/components/vote-submit-button";
 import { asFormAction } from "@/lib/form-action";
+import { submitVoteVerified } from "@/lib/turnstile-client";
 import { voteErrorMessage } from "@/lib/vote-messages";
 import type { TextQuestion, VoteResult } from "@/lib/types";
 import { answerText, DEFAULT_TEXT_MAX_LENGTH } from "@/lib/questions";
@@ -35,7 +36,7 @@ export function TextVoteForm({ question }: { question: TextQuestion }) {
         if (trimmed.length === 0) return;
         const formData = new FormData(event.currentTarget);
         startTransition(async () => {
-          const result: VoteResult = await boundAction(formData);
+          const result: VoteResult = await submitVoteVerified(boundAction, formData);
           if (result.ok) {
             markAnswered(question.id, trimmed);
           } else {

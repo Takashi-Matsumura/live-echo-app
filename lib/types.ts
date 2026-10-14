@@ -253,7 +253,25 @@ export type BrandLogoMeta = Omit<BrandLogo, "bytes">;
 
 export type VoteResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: "closed" | "stale" | "invalid" | "too-long" | "rate-limited" };
+  | {
+      readonly ok: false;
+      readonly reason:
+        | "closed"
+        | "stale"
+        | "invalid"
+        | "too-long"
+        | "rate-limited"
+        /** 参加者 ID の発行枠（IP 単位）に達した */
+        | "busy"
+        /** Turnstile のトークンが検証を通らなかった */
+        | "verification-failed";
+    }
+  /**
+   * まだ参加者 ID が無く、Turnstile のトークンも付いていない。クライアントは
+   * siteKey でウィジェットを実行し、トークンを付けて送り直す
+   * （lib/turnstile-client.ts）。
+   */
+  | { readonly ok: false; readonly reason: "verification-required"; readonly siteKey: string };
 
 // ── 研修資料（SessionState とは別のストレージキーに保存する） ──────────
 // ブランド設定と同じ理由で SessionState の外に置く。SessionState は投票の

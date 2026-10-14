@@ -1,8 +1,8 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHmac } from "node:crypto";
+import { clientIpKey } from "@/lib/auth/client-ip";
 import { safeEqualStrings } from "@/lib/auth/constant-time";
-import { normalizeIpKey } from "@/lib/auth/ip-key";
 import {
   base32Decode,
   buildOtpauthUri,
@@ -189,25 +189,10 @@ export async function assertAdmin(): Promise<void> {
   await refreshAdminSession();
 }
 
-/**
- * ログイン試行のレートリミット用キー。Cloudflare が付与する
- * cf-connecting-ip はクライアントが偽装できない（Cloudflare が上書きする）
- * ため最優先で使う。x-forwarded-for / x-real-ip はローカル next dev での
- * フォールバック用に残す。IPv6 は /64 に丸める（lib/auth/ip-key.ts 参照。
- * アドレスを変えるだけでパスワード試行の制限を抜けられないようにする）。
- */
-async function loginRateLimitKey(): Promise<string> {
-  const h = await headers();
-  const cf = h.get("cf-connecting-ip");
-  if (cf) return normalizeIpKey(cf);
-  const forwarded = h.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return normalizeIpKey(forwarded || h.get("x-real-ip") || "unknown");
-}
-
 /** attemptAdminLogin() の内部でのみ使う。TOTP を経由せずセッションを
  *  発行できる経路を型レベルで無くすため export しない。 */
 async function verifyPassword(candidate: string): Promise<boolean> {
-  const key = await loginRateLimitKey();
+  const key = await clientIpKey();
   const stub = await getSessionStub();
   if (!(await stub.checkLoginRate(key))) {
     return false;

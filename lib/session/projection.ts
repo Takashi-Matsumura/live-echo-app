@@ -150,13 +150,17 @@ export function resultsForQuestion(
 export function materialsFor(
   state: SessionState,
   config: MaterialsConfig | null,
-  participantId: string,
+  participantId: string | null,
   role: Role,
 ): MaterialsConfig | null {
   if (!config) return null;
   if (role === "admin") return config;
   if (state.materialsRevealed) return config;
-  if (config.gateQuestionId && state.ballots[config.gateQuestionId]?.[participantId]) {
+  if (
+    participantId &&
+    config.gateQuestionId &&
+    state.ballots[config.gateQuestionId]?.[participantId]
+  ) {
     return config;
   }
   return null;

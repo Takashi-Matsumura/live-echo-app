@@ -1,5 +1,5 @@
 import { isAdmin, resolveRole } from "@/lib/auth/admin";
-import { getOrCreateParticipantId } from "@/lib/auth/participant";
+import { peekParticipantId } from "@/lib/auth/participant";
 import { renderQrSvg } from "@/lib/qr";
 import { resolveQrLogo } from "@/lib/qr-logo";
 import { getMaterialsFor } from "@/lib/session/service";
@@ -15,7 +15,7 @@ import { getMaterialsFor } from "@/lib/session/service";
  * 404 にする（app/api/results/route.ts と同じ構図）。
  */
 export async function GET(request: Request) {
-  const participantId = await getOrCreateParticipantId();
+  const participantId = await peekParticipantId();
   const actuallyAdmin = await isAdmin();
   const role = resolveRole(request, actuallyAdmin);
 

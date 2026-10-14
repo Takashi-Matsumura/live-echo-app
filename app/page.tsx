@@ -16,8 +16,8 @@ export const metadata: Metadata = {
 };
 
 export default async function Home() {
-  // Server Component は Cookie を発行できないので読むだけ。初回訪問者は
-  // null のまま「未回答」として描画し、実際の発行は GET /api/stream が行う。
+  // 参加者 ID は最初の投票時に発行される（app/actions.ts）。それまでは
+  // null のまま「未回答」として描画する。
   const participantId = await peekParticipantId();
   const state = await snapshotFor("participant");
   const you = participantId

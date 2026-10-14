@@ -20,6 +20,7 @@ npm run dev
 - `ADMIN_PASSWORD` — 管理画面のログインパスワード。**本番運用前に必ず変更する**
 - `SESSION_SECRET` — 管理者セッション Cookie の署名鍵
 - `TOTP_SECRET` — 管理画面ログインの二要素認証（TOTP）用シークレット。`node scripts/generate-totp-secret.mjs` で生成する。ローカルと本番で**別の値**を使うこと（同じ値だと Authenticator アプリのエントリが競合する）
+- `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` — 投票の水増し対策に使う Cloudflare Turnstile のキー（下記「参加者の識別」参照）。未設定だと投票が失敗し、`/api/health` も `ok: false` になる。ローカルでは Cloudflare が公開しているテスト用キー（サイトキー `1x00000000000000000000AA`、シークレット `1x0000000000000000000000000000000AA`。常に検証を通る）を使う
 - `PUBLIC_BASE_URL`（任意）— QR / 投影画面の URL を明示的に上書きしたいときに設定。未設定ならリクエストの Host ヘッダーから自動的に組み立てる。**`.env.local` に設定するとビルド時にその値が Cloudflare Worker バンドルへ静的に焼き込まれる**ため、実際の Cloudflare デプロイでは設定しないこと（Host ヘッダーからの自動検出が効かなくなる）。将来カスタムドメイン等で本番から上書きしたい場合は `.env.local` ではなく `wrangler.jsonc` の `vars` か Cloudflare ダッシュボードの環境変数で設定する
 
 検証（完了を宣言する前に必ず実行する）:
@@ -40,7 +41,11 @@ npx wrangler login
 npx wrangler secret put ADMIN_PASSWORD
 npx wrangler secret put SESSION_SECRET
 npx wrangler secret put TOTP_SECRET  # node scripts/generate-totp-secret.mjs の出力を貼る
+npx wrangler secret put TURNSTILE_SITE_KEY
+npx wrangler secret put TURNSTILE_SECRET_KEY
 ```
+
+Turnstile のキーは Cloudflare ダッシュボードの **Turnstile → ウィジェットを追加**で作る。ホスト名に `pineville.dev` を登録し、ウィジェットモードは「管理対象（Managed）」を選ぶ。作成後に表示されるサイトキーとシークレットキーを上の2つに設定する。
 
 `TOTP_SECRET` を設定（または `wrangler secret put` でローテーション）したら、**デプロイ直後に真っ先に自分でログインして二要素認証の登録を完了させる**こと。未登録の間はパスワードさえ合えば誰でも自分の端末を登録できてしまう窓が開いている（下記「認証」参照）。
 
@@ -146,6 +151,12 @@ TOTP 未登録の間（初回デプロイ直後・`TOTP_SECRET` ローテーシ�
 - **結果開示の境界**: `lib/session/projection.ts` の `toPublicState()` の1箇所だけ。UI 側で `revealed` を見て出し分けるのではなく、シリアライズ層で非公開データを落とす。
 - **`SessionDO` 内の責務分割**: 投票・出題進行など投票のたびに触るホットパスは `SessionDO` 本体（`lib/session/session-do.ts`）に残す一方、非ホットパスで独立したストレージキーを持つ機能はそれぞれ専用モジュールに切り出し、`SessionDO` からは薄い委譲メソッドで呼ぶ（Cloudflare の DO RPC は `SessionDO` 自身のメソッドしか外部から呼べないため、実体を切り出しても公開用の窓口は本体に残す必要がある）。ブランド設定（ロゴ）は `lib/session/brand-storage.ts` の `BrandLogoStore`、研修資料（Canva URL 等）は `lib/session/materials-storage.ts` の `MaterialsStore`、TOTP の登録状態・レート制限は `lib/session/totp-gate.ts` の `TotpGate` が持つ。
 - **レート制限**: 投票（`castVote`）・パスワードログイン試行（`checkLoginRate`）は `SessionDO` のインスタンスフィールド（`lib/rate-limit.ts` の `checkRateLimit()` を使う固定窓カウンタ）で一元管理する。Workers は複数 isolate に分散するため、Next.js 側のモジュールスコープにカウンタを置くと isolate ごとに別集計になってしまう。すべてのリクエストが最終的に同じ DO を経由することを利用し、DO 側に寄せてある。**TOTP コードの失敗カウンタだけは例外的に `ctx.storage`（SQLite）に永続化**している（`lib/session/totp-gate.ts` の `TotpGate`）。6桁コード（100万通り）は in-memory カウンタでは守り切れない — DO は購読者ゼロで短時間退避するため、攻撃者が「数回試す→退避を待つ→また数回」を繰り返すとインスタンスフィールドのカウンタはリセットされてしまう。
+- **参加者の識別**: 参加者は匿名で、`le_pid` Cookie（`lib/auth/participant.ts`）の ID で「1人1設問1票」を数える。Cookie は書き換えられるので、ID を自由に名乗れると何票でも投票できてしまう。これを防ぐために次の3つを組み合わせている:
+  - **署名**: Cookie の値は `<uuid>.<期限>.<HMAC>` で、サーバが発行した ID 以外は受け付けない。期限（発行から12時間）も署名に含めてサーバ側で判定するので、控えておいた ID を後日のイベントで使い回すことはできない
+  - **発行時の Turnstile**: ID は最初の投票時にだけ発行し（`app/actions.ts`）、その際に Turnstile のトークンを要求してサーバ側で検証する（`lib/auth/turnstile.ts`）。ブラウザ側は `lib/turnstile-client.ts` が必要になった時点でウィジェットを読み込む。通常は何も表示されず、対話が必要と判定されたときだけ画面下部にチェックボックスが出る。2回目以降の投票には不要。JS 無効のブラウザでは最初の1票を投じられない
+  - **IP 単位の発行枠**: Turnstile を通った後、IP ごと（IPv6 は /64）に1時間あたり 1000 件まで（`SessionDO.admitParticipant`）。制限の対象は「投票リクエスト」ではなく「ID の発行」なので、正規の参加者が消費するのは1人1回だけで、会場 Wi-Fi で全員が同じ IP になっても足りる
+
+  閲覧だけの接続（`/api/stream` など）には ID を発行しない。匿名参加である以上、Cookie を消して Turnstile を通し直せば同じ人がもう1票入れられる点は残る（手作業の速度に抑えるのが狙い）。
 - **認証**: 管理者セッションは HMAC 署名付き Cookie（`lib/auth/admin.ts`）。Cloudflare は HTTPS のみのため Cookie は `secure: true`。ログイン試行のレート制限キーには、クライアントが偽装できない `cf-connecting-ip`（Cloudflare が付与）を最優先で使う。パスワード検証に加えて TOTP（`lib/auth/totp.ts`、RFC 6238）による二要素認証を必須にしている（`lib/auth/admin.ts` の `attemptAdminLogin()`）:
   - シークレット自体は `TOTP_SECRET` 環境変数のみに存在し、DO には **sha256 で切り詰めた指紋**（`totpSecretFingerprint()`）だけを保存する。パスワード正解かつ未登録（または指紋不一致）ならログイン画面にQRコードを自動表示し、Authenticator アプリへの登録を促す。登録済みならQRは出さずコード入力のみを求める
   - **端末紛失時の復旧経路**は `ADMIN_PASSWORD`/`SESSION_SECRET` と同じ操作性: `wrangler secret put TOTP_SECRET` で値を差し替えて再デプロイするだけでよい。次回ログイン時に指紋が一致しなくなり、自動的にQRが再表示される

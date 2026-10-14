@@ -50,6 +50,16 @@ const VOTE_WINDOW_MS = 60_000;
 // あり、実運用で当たる想定はしていない — Cloudflare 側の Rate Limiting Rule
 // （/api/stream への接続試行の頻度制限）と組み合わせて多層で防御する。
 const MAX_SUBSCRIBERS = 1000;
+// 参加者 ID の発行枠（IP 単位）。発行には Turnstile の通過が必要で
+// （lib/auth/participant.ts）、これはそれを抜ける手段を持つ相手に対する
+// 上限。正規の参加者は1人1回しか消費しないので、会場 Wi-Fi で全員が同じ
+// IP になっても足りるよう MAX_SUBSCRIBERS と同じ規模にしてある。
+const ISSUE_LIMIT = 1000;
+const ISSUE_WINDOW_MS = 60 * 60_000;
+// issueBuckets に保持する IP の数の上限（メモリを際限なく使わないため）。
+// エントリが増えるのは Turnstile を通った新しい IP が来たときだけなので、
+// 通常は遠く届かない。
+const ISSUE_BUCKETS_MAX = 10_000;
 const LOGIN_LIMIT = 10;
 const LOGIN_WINDOW_MS = 60_000;
 const STATE_STORAGE_KEY = "state";
@@ -109,6 +119,7 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private voteBuckets: RateLimitBuckets = new Map();
   private loginBuckets: RateLimitBuckets = new Map();
+  private issueBuckets: RateLimitBuckets = new Map();
   private adminSessionGen = 0;
   private readonly totpGate: TotpGate;
   private readonly brandLogoStore: BrandLogoStore;
@@ -147,10 +158,10 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     });
   }
 
-  private personalFromState(state: SessionState, participantId: string): PersonalState {
+  private personalFromState(state: SessionState, participantId: string | null): PersonalState {
     const questionId = state.activeQuestionId;
     if (!questionId) return { questionId: null, myAnswer: null };
-    const answer = state.ballots[questionId]?.[participantId];
+    const answer = participantId ? state.ballots[questionId]?.[participantId] : undefined;
     return { questionId, myAnswer: answer ?? null };
   }
 
@@ -219,7 +230,7 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
     return toPublicState(this.state, this.questions, role);
   }
 
-  async personal(participantId: string): Promise<PersonalState> {
+  async personal(participantId: string | null): Promise<PersonalState> {
     return this.personalFromState(this.state, participantId);
   }
 
@@ -272,7 +283,10 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
    * Next.js の Node サーバー実装で必要だった「ヘッダ flush 前に enqueue
    * しないと onopen が発火しない」という制約が、この構成では自然に守られる）。
    */
-  async openEventStream(role: Role, participantId: string): Promise<ReadableStream<Uint8Array>> {
+  async openEventStream(
+    role: Role,
+    participantId: string | null,
+  ): Promise<ReadableStream<Uint8Array>> {
     // admin（管理画面・投影画面）は上限判定から除外する。無認証で開ける
     // 参加者枠を埋め尽くされても、講師の画面まで巻き添えで締め出されない
     // ようにするため。role は Worker 側で le_admin Cookie を検証した結果
@@ -327,6 +341,34 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
   }
 
   // ── 参加者操作 ─────────────────────────────────────────────
+
+  /**
+   * 新しい参加者 ID を発行してよいかを IP 単位の枠で判定する
+   * （lib/auth/participant.ts の admitNewParticipant から、Turnstile の
+   * 検証を通った後にだけ呼ばれる）。
+   *
+   * カウンタはインスタンスフィールドなので DO の退避で消えるが、退避が
+   * 起きるのは購読者がいない間だけで、イベント中は保持される。
+   */
+  async admitParticipant(ipKey: string): Promise<boolean> {
+    const key = `issue:${ipKey}`;
+    if (this.issueBuckets.size >= ISSUE_BUCKETS_MAX && !this.issueBuckets.has(key)) {
+      const now = Date.now();
+      for (const [k, bucket] of this.issueBuckets) {
+        if (bucket.resetAt <= now) this.issueBuckets.delete(k);
+      }
+      // 期限切れを掃除してもなお満杯なら、いちばん古いエントリを1つ捨てて
+      // 場所を空ける（Map は挿入順を保つ）。ここで新しい IP を断ると、
+      // 多数の IP を使える相手が Map を埋めるだけで、以後の参加者を全員
+      // 締め出せてしまう。捨てられた IP は枠が戻るが、そこまで IP を持つ
+      // 相手には IP ごとの枠がもともと歯止めになっていない。
+      if (this.issueBuckets.size >= ISSUE_BUCKETS_MAX) {
+        const oldest = this.issueBuckets.keys().next();
+        if (!oldest.done) this.issueBuckets.delete(oldest.value);
+      }
+    }
+    return checkRateLimit(this.issueBuckets, key, ISSUE_LIMIT, ISSUE_WINDOW_MS);
+  }
 
   async castVote(
     participantId: string,
@@ -636,7 +678,10 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
 
   /** GET /api/materials 専用。materialsFor（lib/session/projection.ts）が
    *  唯一のゲート。 */
-  async getMaterialsFor(participantId: string, role: Role): Promise<MaterialsConfig | null> {
+  async getMaterialsFor(
+    participantId: string | null,
+    role: Role,
+  ): Promise<MaterialsConfig | null> {
     const config = await this.materialsStore.get();
     return materialsFor(this.state, config, participantId, role);
   }
