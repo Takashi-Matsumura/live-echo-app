@@ -152,7 +152,7 @@ TOTP 未登録の間（初回デプロイ直後・`TOTP_SECRET` ローテーシ�
 - **`SessionDO` 内の責務分割**: 投票・出題進行など投票のたびに触るホットパスは `SessionDO` 本体（`lib/session/session-do.ts`）に残す一方、非ホットパスで独立したストレージキーを持つ機能はそれぞれ専用モジュールに切り出し、`SessionDO` からは薄い委譲メソッドで呼ぶ（Cloudflare の DO RPC は `SessionDO` 自身のメソッドしか外部から呼べないため、実体を切り出しても公開用の窓口は本体に残す必要がある）。ブランド設定（ロゴ）は `lib/session/brand-storage.ts` の `BrandLogoStore`、研修資料（Canva URL 等）は `lib/session/materials-storage.ts` の `MaterialsStore`、TOTP の登録状態・レート制限は `lib/session/totp-gate.ts` の `TotpGate` が持つ。
 - **レート制限**: 投票（`castVote`）・パスワードログイン試行（`checkLoginRate`）は `SessionDO` のインスタンスフィールド（`lib/rate-limit.ts` の `checkRateLimit()` を使う固定窓カウンタ）で一元管理する。Workers は複数 isolate に分散するため、Next.js 側のモジュールスコープにカウンタを置くと isolate ごとに別集計になってしまう。すべてのリクエストが最終的に同じ DO を経由することを利用し、DO 側に寄せてある。**TOTP コードの失敗カウンタだけは例外的に `ctx.storage`（SQLite）に永続化**している（`lib/session/totp-gate.ts` の `TotpGate`）。6桁コード（100万通り）は in-memory カウンタでは守り切れない — DO は購読者ゼロで短時間退避するため、攻撃者が「数回試す→退避を待つ→また数回」を繰り返すとインスタンスフィールドのカウンタはリセットされてしまう。
 - **参加者の識別**: 参加者は匿名で、`le_pid` Cookie（`lib/auth/participant.ts`）の ID で「1人1設問1票」を数える。Cookie は書き換えられるので、ID を自由に名乗れると何票でも投票できてしまう。これを防ぐために次の3つを組み合わせている:
-  - **署名**: Cookie の値は `<uuid>.<HMAC>` で、サーバが発行した ID 以外は受け付けない
+  - **署名**: Cookie の値は `<uuid>.<期限>.<HMAC>` で、サーバが発行した ID 以外は受け付けない。期限（発行から12時間）も署名に含めてサーバ側で判定するので、控えておいた ID を後日のイベントで使い回すことはできない
   - **発行時の Turnstile**: ID は最初の投票時にだけ発行し（`app/actions.ts`）、その際に Turnstile のトークンを要求してサーバ側で検証する（`lib/auth/turnstile.ts`）。ブラウザ側は `lib/turnstile-client.ts` が必要になった時点でウィジェットを読み込む。通常は何も表示されず、対話が必要と判定されたときだけ画面下部にチェックボックスが出る。2回目以降の投票には不要。JS 無効のブラウザでは最初の1票を投じられない
   - **IP 単位の発行枠**: Turnstile を通った後、IP ごと（IPv6 は /64）に1時間あたり 1000 件まで（`SessionDO.admitParticipant`）。制限の対象は「投票リクエスト」ではなく「ID の発行」なので、正規の参加者が消費するのは1人1回だけで、会場 Wi-Fi で全員が同じ IP になっても足りる
 

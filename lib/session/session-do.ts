@@ -56,8 +56,9 @@ const MAX_SUBSCRIBERS = 1000;
 // IP になっても足りるよう MAX_SUBSCRIBERS と同じ規模にしてある。
 const ISSUE_LIMIT = 1000;
 const ISSUE_WINDOW_MS = 60 * 60_000;
-// issueBuckets に保持する IP の数の上限。エントリが増えるのは Turnstile を
-// 通った新しい IP が来たときだけなので、通常は遠く届かない。
+// issueBuckets に保持する IP の数の上限（メモリを際限なく使わないため）。
+// エントリが増えるのは Turnstile を通った新しい IP が来たときだけなので、
+// 通常は遠く届かない。
 const ISSUE_BUCKETS_MAX = 10_000;
 const LOGIN_LIMIT = 10;
 const LOGIN_WINDOW_MS = 60_000;
@@ -356,9 +357,15 @@ export class SessionDO extends DurableObject<CloudflareEnv> {
       for (const [k, bucket] of this.issueBuckets) {
         if (bucket.resetAt <= now) this.issueBuckets.delete(k);
       }
-      // 期限切れを掃除してもなお満杯なら、新しい IP は受け付けない
-      // （Map を際限なく伸ばさないための安全側の打ち切り）。
-      if (this.issueBuckets.size >= ISSUE_BUCKETS_MAX) return false;
+      // 期限切れを掃除してもなお満杯なら、いちばん古いエントリを1つ捨てて
+      // 場所を空ける（Map は挿入順を保つ）。ここで新しい IP を断ると、
+      // 多数の IP を使える相手が Map を埋めるだけで、以後の参加者を全員
+      // 締め出せてしまう。捨てられた IP は枠が戻るが、そこまで IP を持つ
+      // 相手には IP ごとの枠がもともと歯止めになっていない。
+      if (this.issueBuckets.size >= ISSUE_BUCKETS_MAX) {
+        const oldest = this.issueBuckets.keys().next();
+        if (!oldest.done) this.issueBuckets.delete(oldest.value);
+      }
     }
     return checkRateLimit(this.issueBuckets, key, ISSUE_LIMIT, ISSUE_WINDOW_MS);
   }

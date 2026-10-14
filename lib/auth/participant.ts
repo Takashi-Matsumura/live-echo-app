@@ -16,16 +16,23 @@ const UUID_PATTERN = /^[0-9a-f-]{36}$/;
  * le_admin の署名（lib/auth/admin.ts）と同じ SESSION_SECRET を使うので、
  * 用途の違う署名どうしが流用できないよう接頭辞で分離する。
  */
-function sign(id: string): string {
-  return createHmac("sha256", env.SESSION_SECRET).update(`le_pid.v1:${id}`).digest("base64url");
+function sign(id: string, exp: number): string {
+  return createHmac("sha256", env.SESSION_SECRET)
+    .update(`le_pid.v1:${id}.${exp}`)
+    .digest("base64url");
 }
 
 /**
- * 参加者を識別する匿名 Cookie を読む。値は `<uuid>.<mac>` で、サーバが
- * 発行したもの以外（自分で作った ID、署名の無い旧形式）は null になる。
+ * 参加者を識別する匿名 Cookie を読む。値は `<uuid>.<exp>.<mac>` で、サーバが
+ * 発行したもの以外（自分で作った ID、署名の無い旧形式）と期限切れは null になる。
  *
  * ★署名が無いと、Cookie を書き換えるだけで別人として何票でも投票できる。
  * 「1つの ID で1設問1票」の前提は、ID をサーバしか作れないことで成り立つ。
+ *
+ * ★期限（exp）は Cookie の maxAge ではなく署名の中身で判定する。maxAge は
+ * ブラウザへの指示に過ぎず、値を控えておけばいつまでも送り直せる。期限が
+ * 署名に入っていないと、発行枠の範囲で少しずつ ID を貯めておき、後日の
+ * イベントでまとめて使うことができてしまう。
  *
  * Cookie の発行はここでは行わない（閲覧だけの接続には ID を配らない）。
  * 発行は最初の投票時に admitNewParticipant() が行う。
@@ -34,11 +41,12 @@ export async function peekParticipantId(): Promise<string | null> {
   const store = await cookies();
   const raw = store.get(COOKIE_NAME)?.value;
   if (!raw) return null;
-  const separator = raw.indexOf(".");
-  if (separator === -1) return null;
-  const id = raw.slice(0, separator);
-  if (!UUID_PATTERN.test(id)) return null;
-  return safeEqualStrings(raw.slice(separator + 1), sign(id)) ? id : null;
+  const [id, expRaw, mac, ...rest] = raw.split(".");
+  if (!id || !expRaw || !mac || rest.length > 0) return null;
+  if (!UUID_PATTERN.test(id) || !/^\d{1,15}$/.test(expRaw)) return null;
+  const exp = Number(expRaw);
+  if (!safeEqualStrings(mac, sign(id, exp))) return null;
+  return exp > Date.now() ? id : null;
 }
 
 type Admission =
@@ -74,8 +82,9 @@ export async function admitNewParticipant(token: FormDataEntryValue | null): Pro
   }
 
   const id = randomUUID();
+  const exp = Date.now() + MAX_AGE_SECONDS * 1000;
   const store = await cookies();
-  store.set(COOKIE_NAME, `${id}.${sign(id)}`, {
+  store.set(COOKIE_NAME, `${id}.${exp}.${sign(id, exp)}`, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
