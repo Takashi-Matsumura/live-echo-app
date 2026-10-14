@@ -35,7 +35,7 @@ React の RCE（CVE-2025-55182）を狙う POST が 13 IP 中 7 IP から届き�
 | 4 | 対応済み（PR #38） | `workers_dev: false` |
 | 5 | 対応済み | 出題中かつ非公開の設問は一覧・取得の両方で伏せる |
 | 6 | 対応済み | `frame-ancestors 'self'` / `X-Frame-Options` / `nosniff` / `Referrer-Policy`。HSTS は `.dev` が TLD ごとプリロード済みのため追加していない |
-| 7 | 未対応 | パスワード試行制限の永続化 |
+| 7 | 一部対応 | ログイン試行のキーを IPv6 では /64 単位に丸めた（アドレスを変えるだけの迂回を防ぐ）。カウンタの永続化は未対応 |
 | 8 | 一部対応 | `/api/state` に `no-store` を追加。他は未対応 |
 
 残る設計上の課題: SessionState を 1 つのストレージ値に丸ごと保存しているため、回答が
