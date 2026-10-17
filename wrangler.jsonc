@@ -11,9 +11,11 @@
 	"workers_dev": false,
 	// カスタムドメイン。Cloudflare Registrar で購入済みのゾーンなので DNS/SSL は
 	// deploy 時に自動でプロビジョニングされる。
+	// apex（pineville.dev）には何も置かない。ドメインを知っていれば最初に
+	// 叩かれる入口なので、アプリはサブドメインだけで公開する。
 	"routes": [
 		{
-			"pattern": "pineville.dev",
+			"pattern": "live.pineville.dev",
 			"custom_domain": true
 		}
 	],

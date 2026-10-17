@@ -45,7 +45,7 @@ npx wrangler secret put TURNSTILE_SITE_KEY
 npx wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
-Turnstile のキーは Cloudflare ダッシュボードの **Turnstile → ウィジェットを追加**で作る。ホスト名に `pineville.dev` を登録し、ウィジェットモードは「管理対象（Managed）」を選ぶ。作成後に表示されるサイトキーとシークレットキーを上の2つに設定する。
+Turnstile のキーは Cloudflare ダッシュボードの **Turnstile → ウィジェットを追加**で作る。ホスト名に `live.pineville.dev` を登録し、ウィジェットモードは「管理対象（Managed）」を選ぶ。作成後に表示されるサイトキーとシークレットキーを上の2つに設定する。
 
 `TOTP_SECRET` を設定（または `wrangler secret put` でローテーション）したら、**デプロイ直後に真っ先に自分でログインして二要素認証の登録を完了させる**こと。未登録の間はパスワードさえ合えば誰でも自分の端末を登録できてしまう窓が開いている（下記「認証」参照）。
 
@@ -65,7 +65,7 @@ npm run deploy
 
 初回デプロイ時、Cloudflare アカウントに `workers.dev` サブドメインが未登録だとデプロイが失敗する。その場合は表示される URL（`https://dash.cloudflare.com/<account-id>/workers/onboarding`）でサブドメインを登録してから再実行する。
 
-本番公開ドメインは `https://pineville.dev`。Cloudflare Registrar で購入済みのゾーンを `wrangler.jsonc` の `routes`（`custom_domain: true`）で紐付けており、`npm run deploy` のたびに DNS/SSL 込みで自動的にプロビジョニングされる。`https://<worker名>.<サブドメイン>.workers.dev` は `wrangler.jsonc` の `workers_dev: false` で無効化してある — workers.dev の URL は `pineville.dev` ゾーンの WAF（マネージドルール・レート制限）を通らず、防御を迂回する入口になるため。フォールバック URL が必要になったときだけ一時的に `true` へ戻す。QR / 投影画面の URL は `PUBLIC_BASE_URL` を設定しなくてもリクエストの Host ヘッダーから自動的に `pineville.dev` を組み立てる。
+本番公開ドメインは `https://live.pineville.dev`。Cloudflare Registrar で購入済みの `pineville.dev` ゾーンのサブドメインを `wrangler.jsonc` の `routes`（`custom_domain: true`）で紐付けており、`npm run deploy` のたびに DNS/SSL 込みで自動的にプロビジョニングされる。apex（`pineville.dev`）にはアプリを置いていない — ドメインを知っていれば真っ先に叩かれる入口なので、何も応答させない。`https://<worker名>.<サブドメイン>.workers.dev` は `wrangler.jsonc` の `workers_dev: false` で無効化してある — workers.dev の URL は `pineville.dev` ゾーンの WAF（マネージドルール・レート制限）を通らず、防御を迂回する入口になるため。フォールバック URL が必要になったときだけ一時的に `true` へ戻す。QR / 投影画面の URL は `PUBLIC_BASE_URL` を設定しなくてもリクエストの Host ヘッダーから自動的に `live.pineville.dev` を組み立てる。
 
 `wrangler.jsonc` を変更した場合は `npm run cf-typegen` で `cloudflare-env.d.ts`（バインディングの型定義）を再生成する。
 
@@ -100,17 +100,17 @@ TOTP 未登録の間（初回デプロイ直後・`TOTP_SECRET` ローテーシ�
 1. **[one.dash.cloudflare.com](https://one.dash.cloudflare.com)**（通常のダッシュボードとは別の Zero Trust 専用画面）を開く。初回はチーム名の設定が必要
 2. **Access → Applications → Add an application → Self-hosted**
 3. 「宛先」に、保護したいパスをホスト名ごとに追加する（1アプリにつき最大5つ）:
-   - `pineville.dev` / パス `admin*`
-   - `pineville.dev` / パス `presenter*`
+   - `live.pineville.dev` / パス `admin*`
+   - `live.pineville.dev` / パス `presenter*`
 
-   `workers.dev` 側の URL は `wrangler.jsonc` の `workers_dev: false` で無効化してあるので宛先に含めなくてよい（一時的に `true` へ戻す場合は、**Workers & Pages → 対象Worker → 「ドメイン」タブ**で URL を確認し、同じ2パスを必ず追加すること — 追加しないとそちらから Access を経由せず `/admin` に到達できてしまう）。ホスト全体ではなく `admin*` / `presenter*` のパスだけを指定する — 参加者用の `/` はホスト単位では保護しない（保護すると参加者もアクセスできなくなる）。
+   `workers.dev` 側の URL は `wrangler.jsonc` の `workers_dev: false` で無効化してあるので宛先に**含めない**。無効化した workers.dev の宛先が残っていると、Access のログイン後の戻り先が workers.dev になり「There is nothing here yet」で止まる（実際に踏んだ）。（一時的に `true` へ戻す場合は、**Workers & Pages → 対象Worker → 「ドメイン」タブ**で URL を確認し、同じ2パスを必ず追加すること — 追加しないとそちらから Access を経由せず `/admin` に到達できてしまう）。ホスト全体ではなく `admin*` / `presenter*` のパスだけを指定する — 参加者用の `/` はホスト単位では保護しない（保護すると参加者もアクセスできなくなる）。
 4. **Policies → Add a policy**: Action=`許可`、Include=`Emails` に許可するメールアドレスを追加。保存。
 
 **ハマりどころ（実際に踏んだ）**: ログイン方法として最初は「Cloudflare」（Cloudflareアカウント自体でのOAuthログイン）しか表示されない。これはこのアカウントの管理者向けにCloudflareが自動的に用意する選択肢で、**Policyに登録したメールアドレスが、実際にログインしているCloudflareアカウントの登録メールアドレスと完全一致していないと "That account does not have access." で弾かれる**。GitHub連携用に別のタグ付きメールアドレス（`foo+github@example.com` 等）でCloudflareアカウントを作っている場合は特に注意 — Policyの「含める」ルールに、実際にログインで使うメールアドレスを（複数あれば全部）追加すること。
 
 独立したメール認証チャネルとして「One-time PIN」を使いたい場合は、Zero Trust ダッシュボード → **設定 → 認証** で明示的に有効化する必要がある（デフォルトでは出ないことがある）。「Cloudflare」アカウントでのOAuthログインでも実用上十分な強度はあるため、必須ではない。
 
-設定後は `/admin` `/presenter` へのアクセスがまず Cloudflare Access のログイン画面（302リダイレクト）を経由し、通過後にアプリ本来のパスワード＋TOTPログイン画面に到達する2段構えになる。`curl -I https://pineville.dev/admin` で `302` が返り、`Location` が `cloudflareaccess.com` を指していれば設定成功。
+設定後は `/admin` `/presenter` へのアクセスがまず Cloudflare Access のログイン画面（302リダイレクト）を経由し、通過後にアプリ本来のパスワード＋TOTPログイン画面に到達する2段構えになる。`curl -I https://live.pineville.dev/admin` で `302` が返り、`Location` が `cloudflareaccess.com` を指していれば設定成功。
 
 ## 運用
 
