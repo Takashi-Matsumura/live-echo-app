@@ -63,6 +63,8 @@ npm run preview
 npm run deploy
 ```
 
+`npm run deploy` は build と deploy の間で `scripts/strip-bundled-env.mjs` を通す。OpenNext は `.env.local` などの中身を `.open-next/cloudflare/next-env.mjs` に書き出して Worker に同梱するため、そのままだとローカル用の `ADMIN_PASSWORD` などが本番の Worker スクリプトに平文で載ってしまう。本番の値は `wrangler secret` が優先されるので、空にしても挙動は変わらない。`npx opennextjs-cloudflare deploy` を直接叩くとこの処理を通らないので、デプロイは必ず `npm run deploy` から行う。
+
 初回デプロイ時、Cloudflare アカウントに `workers.dev` サブドメインが未登録だとデプロイが失敗する。その場合は表示される URL（`https://dash.cloudflare.com/<account-id>/workers/onboarding`）でサブドメインを登録してから再実行する。
 
 本番公開ドメインは `https://live.pineville.dev`。Cloudflare Registrar で購入済みの `pineville.dev` ゾーンのサブドメインを `wrangler.jsonc` の `routes`（`custom_domain: true`）で紐付けており、`npm run deploy` のたびに DNS/SSL 込みで自動的にプロビジョニングされる。apex（`pineville.dev`）にはアプリを置いていない — ドメインを知っていれば真っ先に叩かれる入口なので、何も応答させない。`https://<worker名>.<サブドメイン>.workers.dev` は `wrangler.jsonc` の `workers_dev: false` で無効化してある — workers.dev の URL は `pineville.dev` ゾーンの WAF（マネージドルール・レート制限）を通らず、防御を迂回する入口になるため。フォールバック URL が必要になったときだけ一時的に `true` へ戻す。QR / 投影画面の URL は `PUBLIC_BASE_URL` を設定しなくてもリクエストの Host ヘッダーから自動的に `live.pineville.dev` を組み立てる。
